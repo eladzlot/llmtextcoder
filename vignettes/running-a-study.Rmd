@@ -1,0 +1,257 @@
+---
+title: "Running a Study: From Setup to Batch Results"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Running a Study: From Setup to Batch Results}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>",
+  eval     = FALSE
+)
+```
+
+This guide walks a new user through a complete study: from installation and
+writing a rubric, to inspecting results and scoring a full dataset.
+
+## 1. Installation
+
+```{r}
+# install.packages("remotes")
+remotes::install_github("your-username/prompter")
+library(llmtextcoder)
+```
+
+## 2. Store your API key
+
+You need an OpenAI API key. Sign in at <https://platform.openai.com>, go to
+*API keys*, and create one.
+
+Never paste your key into a script. Instead, create a file called `.env`
+somewhere safe (typically your project root) and add:
+
+```
+OPENAI_API_KEY=sk-proj-...
+```
+
+Add `.env` to your `.gitignore`. Load it at the top of every session:
+
+```{r}
+readRenviron(".env")
+nzchar(Sys.getenv("OPENAI_API_KEY"))  # should be TRUE
+```
+
+## 3. Write your rubric template
+
+A rubric is a plain `.txt` file. The only requirements are:
+
+1. It contains `{{text}}` — the placeholder where participant text gets injected.
+2. It instructs the model to respond in JSON (required for structured output).
+
+Example — save this as `rubric_v1.txt`:
+
+```
+You are an expert rater. Score the following text on two dimensions,
+each on a 1–5 scale.
+
+Dimension 1 — Clarity (1 = very unclear, 5 = very clear)
+Dimension 2 — Emotional tone (1 = very negative, 5 = very positive)
+
+Respond ONLY with a JSON object in this exact format and nothing else:
+{"clarity": <1-5>, "emotional_tone": <1-5>}
+
+Text to rate:
+{{text}}
+```
+
+**The rubric is your scientific instrument.** Once you have collected data
+against a version, never edit it in place. Save revisions under a new name
+(`rubric_v2.txt`) so your output files always trace back to the exact rubric
+that produced them.
+
+## 4. Inspect the compiled prompt (no API cost)
+
+Before spending any API credits, verify that the prompt assembles correctly:
+
+```{r}
+template_path    <- "rubric_v1.txt"
+participant_text <- "The instructions were easy to follow and I felt great."
+
+preview_prompt(read_template(template_path), participant_text)
+```
+
+This prints the full prompt with character and word counts. Read it as the
+model will see it — confirm the participant text landed in the right place and
+the rubric instructions are complete.
+
+## 5. Score a single text interactively
+
+Once the prompt looks right, test the full round-trip with one text:
+
+```{r}
+params <- run_params(model = "gpt-4o", temperature = 0)
+
+result <- score_one(template_path, participant_text, params)
+print_result(result$raw, result$scores)
+```
+
+`print_result()` shows both the raw JSON the model returned and the parsed
+scores side by side. Ask yourself:
+
+- Are all expected dimensions present?
+- Are the values in the right range?
+- Does the rating make intuitive sense for this text?
+
+Repeat with two or three contrasting texts before moving on. This sanity check
+costs a few API calls but can save you from discovering a rubric problem after
+scoring 500 participants.
+
+## 6. Prepare your data
+
+`score_many()` expects a data frame with at minimum two columns:
+
+| Column | Description |
+|--------|-------------|
+| `id`   | A unique identifier for each row (e.g. a participant ID) |
+| `text` | The text to score |
+
+```{r}
+df <- read.csv("participants.csv", stringsAsFactors = FALSE)
+head(df[, c("id", "text")])
+```
+
+The `id` column is what the skip logic uses to avoid rescoring rows that have
+already been processed.
+
+## 7. Choose an output directory
+
+`score_many()` and `status()` both take an `output_dir` argument. Results are
+written to `<output_dir>/<rubric-stem>.csv` — so the filename always encodes
+which rubric version produced it. Choose a directory that makes sense for your
+project:
+
+```{r}
+output_dir <- "results"   # or "data", "output", an absolute path, etc.
+```
+
+The directory is created automatically if it does not exist.
+
+## 8. Pilot run: score a small batch first
+
+Always run a pilot before committing the full dataset. Use `n` to limit how
+many rows are processed:
+
+```{r}
+score_many(df, template_path, params, n = 10, output_dir = output_dir)
+```
+
+Open `results/rubric_v1.csv` and check:
+
+- Are all expected score columns present?
+- Do the scores look reasonable across varied texts?
+- Is there any evidence the rubric is being misread?
+
+If something is wrong, fix the rubric (save it as `rubric_v2.txt`) and pilot
+again before touching the full dataset.
+
+## 9. Full batch run
+
+Once the pilot looks good, run the full dataset. Rows already scored in the
+pilot are automatically skipped:
+
+```{r}
+score_many(df, template_path, params, output_dir = output_dir)
+```
+
+A progress bar shows completion in real time. Individual failures are caught
+per-row and written to `results/rubric_v1_errors.csv` — the run continues
+rather than stopping. A summary is printed at the end:
+
+```
+Scoring 490 text(s) → results/rubric_v1.csv
+[==========================================] 490/490 (100%)
+Done. 488 scored, 2 failed — see results/rubric_v1_errors.csv.
+```
+
+Check status at any point:
+
+```{r}
+status(df, template_path, params, output_dir = output_dir)
+# Rubric     : rubric_v1.txt
+# Model      : gpt-4o
+# Output dir : results
+# Total      : 500
+# Scored     : 488
+# Failed     :   2
+# Pending    :  10
+```
+
+## 10. Handling interruptions
+
+If the run is interrupted (network error, crash, power loss), just run the
+same command again. Completed rows are skipped, failed rows are retried:
+
+```{r}
+# Safe to run again at any time
+score_many(df, template_path, params, output_dir = output_dir)
+```
+
+To process only the next batch of N rows:
+
+```{r}
+score_many(df, template_path, params, n = 50, output_dir = output_dir)
+```
+
+## 11. Comparing rubric versions
+
+Save your revised rubric as `rubric_v2.txt`. Each call to `score_many()`
+produces a separate file:
+
+```{r}
+score_many(df, "rubric_v1.txt", params, output_dir = output_dir)
+# → results/rubric_v1.csv
+
+score_many(df, "rubric_v2.txt", params, output_dir = output_dir)
+# → results/rubric_v2.csv
+```
+
+Compare them in R:
+
+```{r}
+v1 <- read.csv("results/rubric_v1.csv", stringsAsFactors = FALSE)
+v2 <- read.csv("results/rubric_v2.csv", stringsAsFactors = FALSE)
+
+mean(v1$clarity)
+mean(v2$clarity)
+```
+
+## 12. Reading and using your results
+
+Each row of the output CSV contains:
+
+| Column | Description |
+|--------|-------------|
+| `id` | The participant identifier from your input data |
+| `text` | The original text (useful for spot-checking) |
+| *(score columns)* | One column per JSON key the model returned |
+| `raw` | The exact JSON string from the model (for auditing) |
+| `prompt_version` | Rubric filename stem (e.g. `rubric_v1`) |
+| `model` | The model name (e.g. `gpt-4o`) |
+| `temperature` | The temperature setting used |
+| `scored_at` | ISO 8601 timestamp |
+
+```{r}
+results <- read.csv("results/rubric_v1.csv", stringsAsFactors = FALSE)
+
+# Downstream analysis: aggregate scores however your study requires
+results$overall <- rowMeans(results[, c("clarity", "emotional_tone")])
+hist(results$overall)
+```
+
+The provenance columns (`prompt_version`, `model`, `scored_at`) make every row
+self-describing — a CSV can be archived or shared and its origin is always
+recoverable.

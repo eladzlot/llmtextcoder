@@ -1,0 +1,8 @@
+^scripts$
+^prompts$
+^raw$
+^data$
+^tests$
+^README\.md$
+^setup_project\.sh$
+^\.env$

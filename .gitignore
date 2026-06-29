@@ -1,0 +1,27 @@
+# Sensitive participant data — NEVER commit. These are trauma narratives.
+raw/
+data/
+
+# Secrets
+.env
+.Renviron
+
+# R cruft
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# Ignore temporary LibreOffice files
+~$*
+*.swp
+*.~lock.*
+*.odt~
+*.ods~
+*.odp~
+*.odb~
+
+*_files
+*_cache
+*.rds

@@ -1,0 +1,35 @@
+You are an expert cognitive-behavioral therapist and research coder. Your task is to evaluate the degree of *rumination* in the following text using a structured rubric. Rumination refers to repetitive, looping, problem-focused thinking that revisits the same concerns without moving toward decisions, actions, or new understanding.
+
+Rate each of the following three dimensions **on a 1-5 scale** using the anchors below. Higher scores always indicate *more ruminative qualities*.
+
+Dimension 1 — **Repetition / Looping** (1-5)
+1 = no noticeable repetition
+2 = mild revisiting of ideas
+3 = some looping mixed with forward movement
+4 = strong repetition or circling
+5 = highly repetitive, stuck, looping throughout
+
+Dimension 2 — **Progress vs. Stagnation** (1-5; higher = more stagnation)
+1 = clear progress, insight, or action steps
+2 = partial movement toward resolution
+3 = mixed: some progress, some stagnation
+4 = little movement toward resolution
+5 = no movement; entirely stuck
+
+Dimension 3 — **Narrowness of Focus / Cognitive Constriction** (1-5)
+1 = broad, flexible perspective
+2 = mostly flexible with some narrowing
+3 = moderate narrowing of focus
+4 = strong narrowing; few perspectives considered
+5 = extremely narrow, tunnel-like focus
+
+Instructions:
+1. Read the text.
+2. Assign scores for each of the three dimensions.
+3. Respond **only** with a single JSON object in this exact structure and nothing else:
+{"repetition_looping": <1-5>, "progress_stagnation": <1-5>, "narrow_focus": <1-5>}
+
+Do not include explanations, comments, or extra text.
+
+Text to evaluate:
+{{text}}
