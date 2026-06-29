@@ -1,9 +1,9 @@
 #' Print a compiled prompt to the console
 #'
 #' Builds a prompt from a template and text, then prints it with a header
-#' showing character and word counts. Use this *before* making any API call
-#' to verify that the participant text was injected correctly and the full
-#' prompt reads as intended.
+#' showing character count, word count, and approximate token count (~4 chars
+#' per token). Use this *before* making any API call to verify that the
+#' participant text was injected correctly and the full prompt reads as intended.
 #'
 #' @param template Character scalar. The template string (from [read_template()]).
 #' @param text Character scalar. The participant text to inject.
@@ -15,12 +15,14 @@
 #' template <- "Please rate this text on a 1-5 scale: {{text}}"
 #' preview_prompt(template, "I can't stop thinking about yesterday's meeting.")
 preview_prompt <- function(template, text) {
-  prompt <- build_prompt(template, text)
-  nchars <- nchar(prompt)
-  nwords <- length(strsplit(trimws(prompt), "\\s+")[[1]])
+  prompt  <- build_prompt(template, text)
+  nchars  <- nchar(prompt)
+  nwords  <- length(strsplit(trimws(prompt), "\\s+")[[1]])
+  ntokens <- round(nchars / 4)
 
   cat(strrep("-", 60), "\n")
-  cat(sprintf("COMPILED PROMPT  |  %d chars  |  %d words\n", nchars, nwords))
+  cat(sprintf("COMPILED PROMPT  |  %d chars  |  %d words  |  ~%d tokens\n",
+              nchars, nwords, ntokens))
   cat(strrep("-", 60), "\n")
   cat(prompt, "\n")
   cat(strrep("-", 60), "\n")

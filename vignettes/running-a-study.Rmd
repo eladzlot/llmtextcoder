@@ -22,7 +22,7 @@ writing a rubric, to inspecting results and scoring a full dataset.
 
 ```{r}
 # install.packages("remotes")
-remotes::install_github("your-username/prompter")
+remotes::install_github("eladzlot/llmtextcoder")
 library(llmtextcoder)
 ```
 
@@ -127,7 +127,93 @@ head(df[, c("id", "text")])
 The `id` column is what the skip logic uses to avoid rescoring rows that have
 already been processed.
 
-## 7. Choose an output directory
+## 7. Scan and redact identifying information
+
+Before sending any text to an external API, scan for potentially identifying
+information (PII). This is especially important when participants provided
+free-text responses.
+
+```{r}
+pii_result <- scan_pii(df)
+```
+
+`scan_pii()` separates findings into two tiers and prints a ready-to-use
+action plan:
+
+```
+PII scan: 4 match(es) across 3 text(s)
+
+Auto-redactable — use redact_pii() to clear:
+  [P089] email
+    "contact me at user@example.com"
+
+Needs review — use redact_words() per row:
+  [P023] name_disclosure #1
+    "My name is Sarah Johnson and I…"
+  [P023] name_disclosure #2
+    "my friend's name is David and…"
+  [P041] location_phrase #1
+    "I live in Tel Aviv near the old…"
+
+Suggested redact_words() calls — fill in n_words:
+  df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = ?, occurrence = 1)
+  df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = ?, occurrence = 2)
+  df <- redact_words(df, id = "P041", pattern = "location_phrase", n_words = ?)
+```
+
+### Step 1 — Auto-redact structural PII
+
+**Never edit your source data file.** Raw data is a scientific record; all
+changes must live in code. `redact_pii()` replaces structural PII (emails,
+phones, Prolific IDs, etc.) globally using the detection regex — the original
+values never appear in your script:
+
+```{r}
+df <- redact_pii(df)
+```
+
+### Step 2 — Redact disclosure phrases per row
+
+Disclosure patterns ("my name is", "I live in") capture only the trigger
+phrase, not the name or place that follows. How many words to remove is a
+judgment call per row. Copy the suggested calls from the `scan_pii()` output
+and fill in `n_words`:
+
+```{r}
+df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = 2, occurrence = 1)
+df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = 1, occurrence = 2)
+df <- redact_words(df, id = "P041", pattern = "location_phrase",  n_words = 3)
+```
+
+`redact_words()` replaces the trigger plus `n_words` following words with
+`[name disclosure redacted]`. When `occurrence` is omitted, all matches in
+that row are replaced with the same word count.
+
+### Skipping the check on subsequent runs
+
+`score_many()` runs `scan_pii()` automatically (default `pii_check = TRUE`).
+Once redaction is complete, set `pii_check = FALSE`:
+
+```{r}
+score_many(df, template_path, params,
+           pii_check = FALSE, output_dir = output_dir)
+```
+
+### Customising the patterns
+
+Add domain-specific patterns or remove noisy ones by modifying the two
+pattern sets independently:
+
+```{r}
+auto <- auto_pii_patterns()
+auto["national_id"] <- "\\b\\d{9}\\b"  # add Israeli national ID
+auto <- auto[names(auto) != "url"]      # URLs not sensitive in this study
+
+scan_pii(df, auto_patterns = auto)
+redact_pii(df, patterns = auto)
+```
+
+## 8. Choose an output directory
 
 `score_many()` and `status()` both take an `output_dir` argument. Results are
 written to `<output_dir>/<rubric-stem>.csv` — so the filename always encodes
@@ -140,13 +226,14 @@ output_dir <- "results"   # or "data", "output", an absolute path, etc.
 
 The directory is created automatically if it does not exist.
 
-## 8. Pilot run: score a small batch first
+## 9. Pilot run: score a small batch first
 
 Always run a pilot before committing the full dataset. Use `n` to limit how
 many rows are processed:
 
 ```{r}
-score_many(df, template_path, params, n = 10, output_dir = output_dir)
+score_many(df, template_path, params,
+           n = 10, pii_check = FALSE, output_dir = output_dir)
 ```
 
 Open `results/rubric_v1.csv` and check:
@@ -158,13 +245,14 @@ Open `results/rubric_v1.csv` and check:
 If something is wrong, fix the rubric (save it as `rubric_v2.txt`) and pilot
 again before touching the full dataset.
 
-## 9. Full batch run
+## 10. Full batch run
 
 Once the pilot looks good, run the full dataset. Rows already scored in the
 pilot are automatically skipped:
 
 ```{r}
-score_many(df, template_path, params, output_dir = output_dir)
+score_many(df, template_path, params,
+           pii_check = FALSE, output_dir = output_dir)
 ```
 
 A progress bar shows completion in real time. Individual failures are caught
@@ -190,7 +278,7 @@ status(df, template_path, params, output_dir = output_dir)
 # Pending    :  10
 ```
 
-## 10. Handling interruptions
+## 11. Handling interruptions
 
 If the run is interrupted (network error, crash, power loss), just run the
 same command again. Completed rows are skipped, failed rows are retried:
@@ -206,30 +294,19 @@ To process only the next batch of N rows:
 score_many(df, template_path, params, n = 50, output_dir = output_dir)
 ```
 
-## 11. Comparing rubric versions
+## 12. Large datasets: the OpenAI Batch API
 
-Save your revised rubric as `rubric_v2.txt`. Each call to `score_many()`
-produces a separate file:
+For datasets of several hundred texts or more, the
+[OpenAI Batch API](https://platform.openai.com/docs/guides/batch) is the
+recommended approach. It submits all requests as a single asynchronous job
+and returns results within 24 hours at **50% of the standard per-token cost**.
 
-```{r}
-score_many(df, "rubric_v1.txt", params, output_dir = output_dir)
-# → results/rubric_v1.csv
+`score_many()` uses the synchronous API — one request at a time — which is
+fine for pilots and moderate datasets but becomes slow and expensive at scale.
+Batch API support (`submit_batch()` / `collect_batch()`) is planned for a
+future version of this package.
 
-score_many(df, "rubric_v2.txt", params, output_dir = output_dir)
-# → results/rubric_v2.csv
-```
-
-Compare them in R:
-
-```{r}
-v1 <- read.csv("results/rubric_v1.csv", stringsAsFactors = FALSE)
-v2 <- read.csv("results/rubric_v2.csv", stringsAsFactors = FALSE)
-
-mean(v1$clarity)
-mean(v2$clarity)
-```
-
-## 12. Reading and using your results
+## 13. Reading and using your results
 
 Each row of the output CSV contains:
 

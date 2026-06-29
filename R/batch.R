@@ -83,6 +83,14 @@ score_one <- function(template_path, text, params = run_params(),
 #' the run is interrupted, restart with the same call — already-scored rows
 #' are skipped automatically.
 #'
+#' @section PII check:
+#' By default, `score_many()` scans all texts for potentially identifying
+#' information (emails, phone numbers, name disclosures, etc.) before any API
+#' call is made. Flagged texts are written to `<output_dir>/<stem>_pii.csv`
+#' and a summary is printed, but scoring proceeds regardless. Review the PII
+#' file after the run (or run [scan_pii()] beforehand) and re-score a cleaned
+#' data frame if needed. Set `pii_check = FALSE` once you have reviewed.
+#'
 #' @section Output files:
 #' Results go to `<output_dir>/<stem>.csv` and failures to
 #' `<output_dir>/<stem>_errors.csv`, where `<stem>` is the template filename
@@ -110,6 +118,13 @@ score_one <- function(template_path, text, params = run_params(),
 #'   Default `Inf` scores all remaining rows.
 #' @param output_dir Character scalar. Directory where the output CSV is
 #'   written. Created automatically if it does not exist. Default `"data"`.
+#' @param pii_check Logical. Scan all texts for PII before scoring. Flagged
+#'   texts are written to `<stem>_pii.csv` and a warning is printed, but
+#'   scoring proceeds. Set to `FALSE` once you have reviewed. Default `TRUE`.
+#' @param pii_auto_patterns Named character vector of auto-redactable patterns
+#'   passed to [scan_pii()]. Default: [auto_pii_patterns()].
+#' @param pii_disclosure_patterns Named character vector of disclosure patterns
+#'   passed to [scan_pii()]. Default: [disclosure_pii_patterns()].
 #' @param api_key Character. OpenAI API key.
 #'
 #' @return The path to the output CSV, invisibly.
@@ -127,11 +142,34 @@ score_one <- function(template_path, text, params = run_params(),
 #'
 #' # Full run — already-scored rows are skipped automatically
 #' score_many(df, "rubric_v1.txt", params, output_dir = "results")
+#'
+#' # Skip PII check if you have already reviewed
+#' score_many(df_clean, "rubric_v1.txt", params, pii_check = FALSE, output_dir = "results")
 #' }
 score_many <- function(df, template_path, params = run_params(), n = Inf,
                        output_dir = "data",
+                       pii_check = TRUE,
+                       pii_auto_patterns       = auto_pii_patterns(),
+                       pii_disclosure_patterns = disclosure_pii_patterns(),
                        api_key = Sys.getenv("OPENAI_API_KEY")) {
   .check_df(df)
+
+  if (pii_check) {
+    pii_path <- sub("\\.csv$", "_pii.csv",
+                    .output_path(template_path, output_dir))
+    dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+    pii_result <- scan_pii(df,
+                           auto_patterns       = pii_auto_patterns,
+                           disclosure_patterns = pii_disclosure_patterns)
+    if (nrow(pii_result) > 0) {
+      n_flagged <- length(unique(pii_result$id))
+      warning(sprintf(
+        "%d text(s) flagged for potential PII — review %s before sharing data.\n  Set pii_check = FALSE once reviewed.",
+        n_flagged, pii_path
+      ), call. = FALSE)
+      write.csv(pii_result, pii_path, row.names = FALSE)
+    }
+  }
 
   template       <- read_template(template_path)
   prompt_version <- tools::file_path_sans_ext(basename(template_path))

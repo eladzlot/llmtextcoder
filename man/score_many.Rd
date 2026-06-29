@@ -10,6 +10,9 @@ score_many(
   params = run_params(),
   n = Inf,
   output_dir = "data",
+  pii_check = TRUE,
+  pii_auto_patterns = auto_pii_patterns(),
+  pii_disclosure_patterns = disclosure_pii_patterns(),
   api_key = Sys.getenv("OPENAI_API_KEY")
 )
 }
@@ -27,6 +30,16 @@ Default \code{Inf} scores all remaining rows.}
 \item{output_dir}{Character scalar. Directory where the output CSV is
 written. Created automatically if it does not exist. Default \code{"data"}.}
 
+\item{pii_check}{Logical. Scan all texts for PII before scoring. Flagged
+texts are written to \verb{<stem>_pii.csv} and a warning is printed, but
+scoring proceeds. Set to \code{FALSE} once you have reviewed. Default \code{TRUE}.}
+
+\item{pii_auto_patterns}{Named character vector of auto-redactable patterns
+passed to \code{\link[=scan_pii]{scan_pii()}}. Default: \code{\link[=auto_pii_patterns]{auto_pii_patterns()}}.}
+
+\item{pii_disclosure_patterns}{Named character vector of disclosure patterns
+passed to \code{\link[=scan_pii]{scan_pii()}}. Default: \code{\link[=disclosure_pii_patterns]{disclosure_pii_patterns()}}.}
+
 \item{api_key}{Character. OpenAI API key.}
 }
 \value{
@@ -38,6 +51,16 @@ appending one row to the output CSV immediately after each API call. If
 the run is interrupted, restart with the same call — already-scored rows
 are skipped automatically.
 }
+\section{PII check}{
+
+By default, \code{score_many()} scans all texts for potentially identifying
+information (emails, phone numbers, name disclosures, etc.) before any API
+call is made. Flagged texts are written to \verb{<output_dir>/<stem>_pii.csv}
+and a summary is printed, but scoring proceeds regardless. Review the PII
+file after the run (or run \code{\link[=scan_pii]{scan_pii()}} beforehand) and re-score a cleaned
+data frame if needed. Set \code{pii_check = FALSE} once you have reviewed.
+}
+
 \section{Output files}{
 
 Results go to \verb{<output_dir>/<stem>.csv} and failures to
@@ -77,5 +100,8 @@ score_many(df, "rubric_v1.txt", params, n = 10, output_dir = "results")
 
 # Full run — already-scored rows are skipped automatically
 score_many(df, "rubric_v1.txt", params, output_dir = "results")
+
+# Skip PII check if you have already reviewed
+score_many(df_clean, "rubric_v1.txt", params, pii_check = FALSE, output_dir = "results")
 }
 }

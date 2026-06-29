@@ -16,9 +16,9 @@ The compiled prompt string, invisibly.
 }
 \description{
 Builds a prompt from a template and text, then prints it with a header
-showing character and word counts. Use this \emph{before} making any API call
-to verify that the participant text was injected correctly and the full
-prompt reads as intended.
+showing character count, word count, and approximate token count (~4 chars
+per token). Use this \emph{before} making any API call to verify that the
+participant text was injected correctly and the full prompt reads as intended.
 }
 \examples{
 template <- "Please rate this text on a 1-5 scale: {{text}}"
