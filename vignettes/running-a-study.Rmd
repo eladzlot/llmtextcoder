@@ -294,17 +294,64 @@ To process only the next batch of N rows:
 score_many(df, template_path, params, n = 50, output_dir = output_dir)
 ```
 
-## 12. Large datasets: the OpenAI Batch API
+## 12. Large datasets: async batch scoring
 
 For datasets of several hundred texts or more, the
 [OpenAI Batch API](https://platform.openai.com/docs/guides/batch) is the
-recommended approach. It submits all requests as a single asynchronous job
-and returns results within 24 hours at **50% of the standard per-token cost**.
+recommended approach. It submits all requests as a single asynchronous job,
+returns results within 24 hours, and costs **50% less** than the synchronous
+API. `score_many()` calls the API once per text in sequence — fine for pilots
+and moderate datasets, but slow and expensive at scale.
 
-`score_many()` uses the synchronous API — one request at a time — which is
-fine for pilots and moderate datasets but becomes slow and expensive at scale.
-Batch API support (`submit_batch()` / `collect_batch()`) is planned for a
-future version of this package.
+### Submit the job
+
+```{r}
+submit_batch(df, template_path, params, output_dir = output_dir)
+```
+
+This builds a JSONL file of all pending rows (same skip logic as
+`score_many()`), uploads it to OpenAI, and submits the batch job. A state
+file `<output_dir>/<stem>_batch_<model>.json` is written immediately — it
+records the batch ID and the original texts so you can close R and come back
+later without losing anything.
+
+### Collect results
+
+When you return (anywhere from a few minutes to 24 hours later), call:
+
+```{r}
+collect_batch(template_path, params, output_dir = output_dir)
+```
+
+If the job is still running, the current progress is printed and the function
+returns `NULL` — call again later. When complete, results are parsed and
+written to the same CSV as `score_many()`, failures go to `_errors.csv`, and
+the state file is removed.
+
+### Running multiple batches simultaneously
+
+Each rubric–model combination has its own state file, so you can submit
+batches for different rubrics or models at the same time:
+
+```{r}
+submit_batch(df, "rubric_v1.txt", run_params("gpt-4o"),      output_dir = output_dir)
+submit_batch(df, "rubric_v1.txt", run_params("gpt-4o-mini"), output_dir = output_dir)
+submit_batch(df, "rubric_v2.txt", run_params("gpt-4o"),      output_dir = output_dir)
+
+# Later — collect each independently
+collect_batch("rubric_v1.txt", run_params("gpt-4o"),      output_dir = output_dir)
+collect_batch("rubric_v1.txt", run_params("gpt-4o-mini"), output_dir = output_dir)
+collect_batch("rubric_v2.txt", run_params("gpt-4o"),      output_dir = output_dir)
+```
+
+### Choosing between score_many() and submit_batch()
+
+| | `score_many()` | `submit_batch()` |
+|---|---|---|
+| Results available | Immediately, row by row | Within 24 hours |
+| Cost | Standard rate | 50% discount |
+| Good for | Pilots, small datasets | Large datasets (200+ texts) |
+| Interruption recovery | Resume with same call | Call `collect_batch()` later |
 
 ## 13. Reading and using your results
 

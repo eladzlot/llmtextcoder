@@ -1,204 +1,310 @@
-# Tests for batch.R — call_openai is mocked inline per test so no API calls are made.
+# Helpers ─────────────────────────────────────────────────────────────────────
 
-sample_df <- data.frame(
-  id   = c("a", "b", "c"),
-  text = c("text one", "text two", "text three"),
-  stringsAsFactors = FALSE
-)
+make_df <- function(ids = c("P1", "P2"), texts = c("text one", "text two")) {
+  data.frame(id = ids, text = texts, stringsAsFactors = FALSE)
+}
 
-# --- .output_path / .error_path -------------------------------------------
+make_state <- function(dir, stem = "rubric", model = "gpt-4o",
+                       batch_id = "batch_abc",
+                       ids = c("P1", "P2"), texts = c("text one", "text two")) {
+  state <- list(
+    batch_id          = batch_id,
+    input_file_id     = "file_xyz",
+    texts             = setNames(as.list(texts), ids),
+    prompt_version    = stem,
+    model             = model,
+    temperature       = 0,
+    completion_window = "24h",
+    submitted_at      = "2026-01-01T00:00:00"
+  )
+  path <- file.path(dir, paste0(stem, "_batch_", model, ".json"))
+  writeLines(jsonlite::toJSON(state, auto_unbox = TRUE), path)
+  path
+}
 
-test_that(".output_path() derives CSV path from template path", {
-  expect_equal(.output_path("prompts/rumination_v1.txt"), "data/rumination_v1.csv")
-  expect_equal(.output_path("prompts/foo_v2.txt"),        "data/foo_v2.csv")
+# Build a JSONL string from a list of result entry lists
+make_output_jsonl <- function(entries) {
+  paste(
+    vapply(entries, function(e) jsonlite::toJSON(e, auto_unbox = TRUE, null = "null"),
+           character(1)),
+    collapse = "\n"
+  )
+}
+
+# Mock .get_batch_status and .download_file_content; restore on test exit.
+# Returns a list of the original functions (for reference if needed).
+mock_collect <- function(status_fn, download_fn) {
+  old_status   <- get(".get_batch_status",     envir = globalenv())
+  old_download <- get(".download_file_content", envir = globalenv())
+  parent <- parent.env(environment())
+  do.call("on.exit", list(substitute({
+    assign(".get_batch_status",     old_status,   envir = globalenv())
+    assign(".download_file_content", old_download, envir = globalenv())
+  }), add = TRUE), envir = parent)
+  assign(".get_batch_status",      status_fn,   envir = globalenv())
+  assign(".download_file_content", download_fn, envir = globalenv())
+}
+
+# ── .batch_state_path ─────────────────────────────────────────────────────────
+
+test_that("state path encodes stem and model", {
+  path <- .batch_state_path("prompts/rubric_v1.txt", run_params("gpt-4o"),
+                             "results")
+  expect_equal(path, "results/rubric_v1_batch_gpt-4o.json")
 })
 
-test_that(".output_path() respects output_dir", {
-  expect_equal(.output_path("rubric_v1.txt", "results"), "results/rubric_v1.csv")
-  expect_equal(.output_path("rubric_v1.txt", "/tmp/out"), "/tmp/out/rubric_v1.csv")
+test_that("state path sanitises unusual model name characters", {
+  path <- .batch_state_path("rubric.txt", run_params("org/model:latest"), "out")
+  expect_false(grepl("[/:]", basename(path)))
 })
 
-test_that(".error_path() is parallel to output path", {
-  expect_equal(.error_path("prompts/rubric_v1.txt"), "data/rubric_v1_errors.csv")
-  expect_equal(.error_path("rubric_v1.txt", "results"), "results/rubric_v1_errors.csv")
+# ── .build_batch_jsonl ────────────────────────────────────────────────────────
+
+test_that("build_batch_jsonl produces one line per row", {
+  lines <- strsplit(
+    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params()), "\n"
+  )[[1]]
+  expect_equal(length(lines), 2)
 })
 
-# --- Input validation -----------------------------------------------------
-
-test_that(".check_df() rejects non-data-frames", {
-  expect_error(.check_df(list(id = 1, text = "x")), "data frame")
+test_that("each jsonl line has custom_id matching row id", {
+  lines  <- strsplit(
+    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params()), "\n"
+  )[[1]]
+  parsed <- lapply(lines, jsonlite::fromJSON, simplifyVector = FALSE)
+  expect_equal(parsed[[1]]$custom_id, "P1")
+  expect_equal(parsed[[2]]$custom_id, "P2")
 })
 
-test_that(".check_df() reports missing columns by name", {
-  expect_error(.check_df(data.frame(id = 1)), "text")
-  expect_error(.check_df(data.frame(text = "x")), "id")
+test_that("jsonl lines contain injected text in message content", {
+  df    <- make_df(texts = c("hello world", "goodbye"))
+  lines <- strsplit(
+    .build_batch_jsonl(df, "Say: {{text}}", run_params()), "\n"
+  )[[1]]
+  parsed <- lapply(lines, jsonlite::fromJSON, simplifyVector = FALSE)
+  expect_true(grepl("hello world",
+                    parsed[[1]]$body$messages[[1]]$content))
 })
 
-# --- score_many: core behaviour -------------------------------------------
+test_that("jsonl lines request json_object response format", {
+  lines  <- strsplit(
+    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params()), "\n"
+  )[[1]]
+  parsed <- jsonlite::fromJSON(lines[[1]], simplifyVector = FALSE)
+  expect_equal(parsed$body$response_format$type, "json_object")
+})
 
-test_that("score_many() writes all rows when n = Inf", {
+# ── submit_batch ──────────────────────────────────────────────────────────────
+
+test_that("submit_batch errors if state file already exists", {
   withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
-    old_fn <- call_openai
-    assign("call_openai", function(...) '{"score": 3}', envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
-
-    score_many(sample_df, "prompts/test_v1.txt", run_params())
-    out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
-    expect_equal(nrow(out), 3)
+    writeLines("Rate: {{text}}", "rubric.txt")
+    make_state(".")
+    expect_error(
+      submit_batch(make_df(), "rubric.txt", run_params(), output_dir = "."),
+      "pending batch"
+    )
   })
 })
 
-test_that("score_many() respects output_dir", {
+test_that("submit_batch messages when nothing is pending", {
   withr::with_tempdir({
-    dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
-    old_fn <- call_openai
-    assign("call_openai", function(...) '{"score": 3}', envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
-
-    score_many(sample_df, "prompts/test_v1.txt", run_params(), output_dir = "myresults")
-    expect_true(file.exists("myresults/test_v1.csv"))
-    expect_false(file.exists("data/test_v1.csv"))
+    writeLines("Rate: {{text}}", "rubric.txt")
+    p  <- run_params()
+    df <- make_df()
+    out <- data.frame(id = c("P1", "P2"), text = c("a", "b"), score = 1,
+                      raw = "{}", prompt_version = "rubric",
+                      model = p$model, temperature = p$temperature,
+                      scored_at = "2026-01-01", stringsAsFactors = FALSE)
+    write.csv(out, "rubric.csv", row.names = FALSE)
+    expect_message(
+      submit_batch(df, "rubric.txt", p, output_dir = "."),
+      "Nothing to submit"
+    )
   })
 })
 
-test_that("score_many() n parameter limits rows processed", {
+test_that("submit_batch writes state file with texts and batch_id", {
   withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
-    old_fn <- call_openai
-    assign("call_openai", function(...) '{"score": 3}', envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
+    writeLines("Rate: {{text}}", "rubric.txt")
 
-    score_many(sample_df, "prompts/test_v1.txt", run_params(), n = 1)
-    out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
-    expect_equal(nrow(out), 1)
-    expect_equal(out$id, "a")
+    old_upload <- get(".upload_jsonl",  envir = globalenv())
+    old_create <- get(".create_batch",  envir = globalenv())
+    on.exit({
+      assign(".upload_jsonl", old_upload, envir = globalenv())
+      assign(".create_batch", old_create, envir = globalenv())
+    }, add = TRUE)
+    assign(".upload_jsonl", function(...) list(id = "file_test"),
+           envir = globalenv())
+    assign(".create_batch", function(...) list(id = "batch_test"),
+           envir = globalenv())
+
+    suppressMessages(
+      submit_batch(make_df(), "rubric.txt", run_params(), output_dir = ".")
+    )
+
+    state_file <- "rubric_batch_gpt-4o.json"
+    expect_true(file.exists(state_file))
+    state <- jsonlite::fromJSON(readLines(state_file, warn = FALSE),
+                                simplifyVector = FALSE)
+    expect_equal(state$batch_id,    "batch_test")
+    expect_equal(state$texts[["P1"]], "text one")
+    expect_equal(state$texts[["P2"]], "text two")
   })
 })
 
-test_that("score_many() skips rows already scored with the same model", {
+test_that("submit_batch respects n parameter", {
   withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
-    old_fn <- call_openai
-    assign("call_openai", function(...) '{"score": 3}', envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
+    writeLines("Rate: {{text}}", "rubric.txt")
+    df <- make_df(ids   = c("P1", "P2", "P3"),
+                  texts = c("a",  "b",  "c"))
 
-    params <- run_params()
-    score_many(sample_df, "prompts/test_v1.txt", params, n = 2)
-    score_many(sample_df, "prompts/test_v1.txt", params)
+    captured_jsonl <- NULL
+    old_upload <- get(".upload_jsonl", envir = globalenv())
+    old_create <- get(".create_batch", envir = globalenv())
+    on.exit({
+      assign(".upload_jsonl", old_upload, envir = globalenv())
+      assign(".create_batch", old_create, envir = globalenv())
+    }, add = TRUE)
+    assign(".upload_jsonl",
+           function(jsonl_text, ...) { captured_jsonl <<- jsonl_text
+                                       list(id = "f") },
+           envir = globalenv())
+    assign(".create_batch", function(...) list(id = "b"), envir = globalenv())
 
-    out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
-    expect_equal(nrow(out), 3)
-    expect_equal(sort(out$id), c("a", "b", "c"))
+    suppressMessages(
+      submit_batch(df, "rubric.txt", run_params(), n = 2, output_dir = ".")
+    )
+    lines <- strsplit(captured_jsonl, "\n")[[1]]
+    expect_equal(length(lines), 2)
   })
 })
 
-test_that("score_many() does not skip rows when model changes", {
+# ── collect_batch ─────────────────────────────────────────────────────────────
+
+test_that("collect_batch errors when no state file exists", {
   withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
-    old_fn <- call_openai
-    assign("call_openai", function(...) '{"score": 3}', envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
-
-    score_many(sample_df, "prompts/test_v1.txt", run_params(model = "gpt-4o"))
-    score_many(sample_df, "prompts/test_v1.txt", run_params(model = "gpt-4o-mini"))
-
-    out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
-    expect_equal(nrow(out), 6)
+    writeLines("Rate: {{text}}", "rubric.txt")
+    expect_error(
+      collect_batch("rubric.txt", run_params(), output_dir = "."),
+      "No pending batch"
+    )
   })
 })
 
-test_that("score_many() output has required provenance columns", {
+test_that("collect_batch returns NULL and preserves state when not ready", {
   withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
-    old_fn <- call_openai
-    assign("call_openai", function(...) '{"score": 3}', envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
+    writeLines("Rate: {{text}}", "rubric.txt")
+    make_state(".")
 
-    score_many(sample_df[1, ], "prompts/test_v1.txt", run_params())
-    out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
+    old_status <- get(".get_batch_status", envir = globalenv())
+    on.exit(assign(".get_batch_status", old_status, envir = globalenv()),
+            add = TRUE)
+    assign(".get_batch_status",
+           function(...) list(status = "in_progress",
+                              request_counts = list(completed = 1L,
+                                                    failed    = 0L,
+                                                    total     = 2L)),
+           envir = globalenv())
 
-    expect_true(all(c("id", "text", "prompt_version", "model",
-                      "temperature", "scored_at", "raw") %in% names(out)))
-    expect_equal(out$prompt_version, "test_v1")
-    expect_equal(out$model, "gpt-4o")
+    result <- suppressMessages(
+      collect_batch("rubric.txt", run_params(), output_dir = ".")
+    )
+    expect_null(result)
+    expect_true(file.exists("rubric_batch_gpt-4o.json"))
   })
 })
 
-# --- Error handling -------------------------------------------------------
-
-test_that("score_many() writes failures to error CSV and continues", {
+test_that("collect_batch writes CSV, restores text, removes state when complete", {
   withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
+    writeLines("Rate: {{text}}", "rubric.txt")
+    make_state(".")
 
-    # fail on id "b", succeed otherwise
-    old_fn <- call_openai
-    assign("call_openai", function(prompt, ...) {
-      if (grepl("text two", prompt)) stop("simulated API error")
-      '{"score": 3}'
-    }, envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
+    output_jsonl <- make_output_jsonl(list(
+      list(custom_id = "P1",
+           response  = list(body = list(choices = list(
+             list(message = list(content = '{"score":4}'))
+           ))),
+           error = NULL),
+      list(custom_id = "P2",
+           response  = list(body = list(choices = list(
+             list(message = list(content = '{"score":2}'))
+           ))),
+           error = NULL)
+    ))
 
-    score_many(sample_df, "prompts/test_v1.txt", run_params())
+    old_status   <- get(".get_batch_status",     envir = globalenv())
+    old_download <- get(".download_file_content", envir = globalenv())
+    on.exit({
+      assign(".get_batch_status",     old_status,   envir = globalenv())
+      assign(".download_file_content", old_download, envir = globalenv())
+    }, add = TRUE)
+    assign(".get_batch_status",
+           function(...) list(status = "completed", output_file_id = "f_out",
+                              request_counts = list(completed = 2L,
+                                                    failed = 0L, total = 2L)),
+           envir = globalenv())
+    assign(".download_file_content",
+           function(...) output_jsonl,
+           envir = globalenv())
 
-    out <- read.csv("data/test_v1.csv",        stringsAsFactors = FALSE)
-    err <- read.csv("data/test_v1_errors.csv", stringsAsFactors = FALSE)
+    suppressMessages(
+      collect_batch("rubric.txt", run_params(), output_dir = ".")
+    )
 
-    expect_equal(nrow(out), 2)           # a and c succeeded
-    expect_false("b" %in% out$id)
-    expect_equal(nrow(err), 1)           # b failed
-    expect_equal(err$id, "b")
-    expect_true(nzchar(err$error))
+    expect_false(file.exists("rubric_batch_gpt-4o.json"))
+    expect_true(file.exists("rubric.csv"))
+    out <- read.csv("rubric.csv", stringsAsFactors = FALSE)
+    expect_equal(nrow(out), 2)
+    expect_true("score" %in% names(out))
+    expect_equal(out$text[out$id == "P1"], "text one")
+    expect_equal(out$text[out$id == "P2"], "text two")
   })
 })
 
-test_that("score_many() retries failed rows on next run", {
+test_that("collect_batch routes API errors to _errors.csv", {
   withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
+    writeLines("Rate: {{text}}", "rubric.txt")
+    make_state(".")
 
-    # first run: all fail
-    old_fn <- call_openai
-    assign("call_openai", function(...) stop("down"), envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
-    score_many(sample_df, "prompts/test_v1.txt", run_params())
+    output_jsonl <- make_output_jsonl(list(
+      list(custom_id = "P1",
+           response  = list(body = list(choices = list(
+             list(message = list(content = '{"score":4}'))
+           ))),
+           error = NULL),
+      list(custom_id = "P2",
+           response  = NULL,
+           error     = list(message = "rate limit exceeded"))
+    ))
 
-    # second run: all succeed — failed rows should be retried
-    assign("call_openai", function(...) '{"score": 1}', envir = globalenv())
-    score_many(sample_df, "prompts/test_v1.txt", run_params())
+    old_status   <- get(".get_batch_status",     envir = globalenv())
+    old_download <- get(".download_file_content", envir = globalenv())
+    on.exit({
+      assign(".get_batch_status",     old_status,   envir = globalenv())
+      assign(".download_file_content", old_download, envir = globalenv())
+    }, add = TRUE)
+    assign(".get_batch_status",
+           function(...) list(status = "completed", output_file_id = "f_out",
+                              request_counts = list(completed = 1L,
+                                                    failed = 1L, total = 2L)),
+           envir = globalenv())
+    assign(".download_file_content",
+           function(...) output_jsonl,
+           envir = globalenv())
 
-    out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
-    expect_equal(nrow(out), 3)
-  })
-})
+    suppressMessages(
+      collect_batch("rubric.txt", run_params(), output_dir = ".")
+    )
 
-# --- status() -------------------------------------------------------------
-
-test_that("status() returns correct counts", {
-  withr::with_tempdir({
-    dir.create("data"); dir.create("prompts")
-    writeLines("Rate: {{text}}", "prompts/test_v1.txt")
-
-    old_fn <- call_openai
-    assign("call_openai", function(prompt, ...) {
-      if (grepl("text two", prompt)) stop("fail")
-      '{"score": 3}'
-    }, envir = globalenv())
-    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
-
-    score_many(sample_df, "prompts/test_v1.txt", run_params())
-    s <- status(sample_df, "prompts/test_v1.txt", run_params())
-
-    expect_equal(s$total,   3)
-    expect_equal(s$scored,  2)
-    expect_equal(s$failed,  1)
-    expect_equal(s$pending, 0)
+    expect_true(file.exists("rubric.csv"))
+    expect_true(file.exists("rubric_errors.csv"))
+    out  <- read.csv("rubric.csv",        stringsAsFactors = FALSE)
+    errs <- read.csv("rubric_errors.csv", stringsAsFactors = FALSE)
+    expect_equal(nrow(out),  1)
+    expect_equal(out$id,     "P1")
+    expect_equal(nrow(errs), 1)
+    expect_equal(errs$id,    "P2")
+    expect_true(grepl("rate limit", errs$error))
   })
 })

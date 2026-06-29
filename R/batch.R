@@ -1,180 +1,145 @@
 #' @noRd
-.output_path <- function(template_path, output_dir = "data") {
-  stem <- tools::file_path_sans_ext(basename(template_path))
-  file.path(output_dir, paste0(stem, ".csv"))
+.batch_state_path <- function(template_path, params, output_dir = "data") {
+  stem  <- tools::file_path_sans_ext(basename(template_path))
+  model <- gsub("[^A-Za-z0-9._-]", "_", params$model)
+  file.path(output_dir, paste0(stem, "_batch_", model, ".json"))
 }
 
 #' @noRd
-.error_path <- function(template_path, output_dir = "data") {
-  sub("\\.csv$", "_errors.csv", .output_path(template_path, output_dir))
-}
-
-#' @noRd
-.to_row <- function(id, text, raw, scores, prompt_version, params) {
-  cbind(
-    data.frame(id = id, text = text, stringsAsFactors = FALSE),
-    as.data.frame(scores, stringsAsFactors = FALSE),
-    data.frame(
-      raw            = raw,
-      prompt_version = prompt_version,
-      model          = params$model,
-      temperature    = params$temperature,
-      scored_at      = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
-      stringsAsFactors = FALSE
+.build_batch_jsonl <- function(df, template, params) {
+  lines <- vapply(seq_len(nrow(df)), function(i) {
+    body <- list(
+      model           = params$model,
+      temperature     = params$temperature,
+      response_format = list(type = "json_object"),
+      messages        = list(list(role    = "user",
+                                  content = build_prompt(template, df$text[i])))
     )
-  )
+    jsonlite::toJSON(list(
+      custom_id = as.character(df$id[i]),
+      method    = "POST",
+      url       = "/v1/chat/completions",
+      body      = body
+    ), auto_unbox = TRUE)
+  }, character(1))
+  paste(lines, collapse = "\n")
 }
 
 #' @noRd
-.append_csv <- function(row, path) {
-  write.table(row, file = path, append = file.exists(path),
-              sep = ",", col.names = !file.exists(path),
-              row.names = FALSE, qmethod = "double")
+.upload_jsonl <- function(jsonl_text, api_key, base_url) {
+  tmp <- tempfile(fileext = ".jsonl")
+  on.exit(unlink(tmp))
+  writeLines(jsonl_text, tmp, useBytes = TRUE)
+
+  httr2::request(base_url) |>
+    httr2::req_url_path_append("files") |>
+    httr2::req_auth_bearer_token(api_key) |>
+    httr2::req_body_multipart(
+      purpose = "batch",
+      file    = curl::form_file(tmp, type = "application/jsonl")
+    ) |>
+    httr2::req_retry(max_tries = 4,
+                     is_transient = \(r) httr2::resp_status(r) %in%
+                       c(429, 500, 502, 503)) |>
+    httr2::req_perform() |>
+    httr2::resp_body_json()
 }
 
 #' @noRd
-.check_df <- function(df) {
-  if (!is.data.frame(df))
-    stop("`df` must be a data frame.")
-  missing_cols <- setdiff(c("id", "text"), names(df))
-  if (length(missing_cols) > 0)
-    stop(sprintf("`df` is missing required column(s): %s",
-                 paste(missing_cols, collapse = ", ")))
+.create_batch <- function(file_id, completion_window, api_key, base_url) {
+  httr2::request(base_url) |>
+    httr2::req_url_path_append("batches") |>
+    httr2::req_auth_bearer_token(api_key) |>
+    httr2::req_body_json(list(
+      input_file_id     = file_id,
+      endpoint          = "/v1/chat/completions",
+      completion_window = completion_window
+    )) |>
+    httr2::req_retry(max_tries = 4,
+                     is_transient = \(r) httr2::resp_status(r) %in%
+                       c(429, 500, 502, 503)) |>
+    httr2::req_perform() |>
+    httr2::resp_body_json()
 }
 
-#' Score a single text against a rubric template
+#' @noRd
+.get_batch_status <- function(batch_id, api_key, base_url) {
+  httr2::request(base_url) |>
+    httr2::req_url_path_append("batches", batch_id) |>
+    httr2::req_auth_bearer_token(api_key) |>
+    httr2::req_perform() |>
+    httr2::resp_body_json()
+}
+
+#' @noRd
+.download_file_content <- function(file_id, api_key, base_url) {
+  httr2::request(base_url) |>
+    httr2::req_url_path_append("files", file_id, "content") |>
+    httr2::req_auth_bearer_token(api_key) |>
+    httr2::req_perform() |>
+    httr2::resp_body_string()
+}
+
+#' Submit a batch scoring job to the OpenAI Batch API
 #'
-#' A convenience wrapper for interactive and testing use. Reads the template,
-#' builds the prompt, calls the API, and parses the response in one step.
-#' Pass the result to [print_result()] to display it, or inspect `$raw` and
-#' `$scores` directly.
+#' Uploads all pending rows (those not already in the output CSV) as a single
+#' asynchronous batch job. Results are available within 24 hours at 50% of the
+#' standard per-token cost. Use [collect_batch()] to retrieve results once the
+#' job completes.
 #'
+#' A state file (`<stem>_batch_<model>.json`) is written to `output_dir`
+#' recording the batch ID, submitted row IDs, and original texts. This file is
+#' required by [collect_batch()] and is removed automatically when results are
+#' collected. If a state file already exists, `submit_batch()` errors — collect
+#' the pending batch first.
+#'
+#' @section Multiple concurrent batches:
+#' Each rubric–model combination has its own state file, so batches for
+#' different rubrics or different models can run simultaneously without
+#' interference.
+#'
+#' @param df A data frame with at minimum columns `id` and `text`.
 #' @param template_path Character scalar. Path to the `.txt` rubric template.
-#' @param text Character scalar. The participant text to score.
 #' @param params A `run_params` object (from [run_params()]).
+#' @param n Integer. Maximum number of pending rows to include. Default `Inf`.
+#' @param output_dir Character scalar. Directory for output files. Default
+#'   `"data"`.
+#' @param completion_window Character. `"24h"` (default) or `"1h"`.
 #' @param api_key Character. OpenAI API key.
+#' @param base_url Character. OpenAI API base URL.
 #'
-#' @return A list with two elements:
-#'   - `raw`: the raw JSON string returned by the model.
-#'   - `scores`: the parsed named list of dimension scores.
+#' @return The batch ID string, invisibly.
 #' @export
 #'
 #' @examples
 #' \dontrun{
-#' readRenviron(".env")
-#' result <- score_one("rubric_v1.txt",
-#'                     "I keep worrying about the same thing.",
-#'                     run_params())
-#' print_result(result$raw, result$scores)
-#' }
-score_one <- function(template_path, text, params = run_params(),
-                      api_key = Sys.getenv("OPENAI_API_KEY")) {
-  template <- read_template(template_path)
-  prompt   <- build_prompt(template, text)
-  raw      <- call_openai(prompt, params, api_key)
-  scores   <- parse_response(raw)
-  list(raw = raw, scores = scores)
-}
-
-#' Score a data frame of texts against a rubric, with incremental output
-#'
-#' Scores each row of `df` against the rubric template at `template_path`,
-#' appending one row to the output CSV immediately after each API call. If
-#' the run is interrupted, restart with the same call — already-scored rows
-#' are skipped automatically.
-#'
-#' @section PII check:
-#' By default, `score_many()` scans all texts for potentially identifying
-#' information (emails, phone numbers, name disclosures, etc.) before any API
-#' call is made. Flagged texts are written to `<output_dir>/<stem>_pii.csv`
-#' and a summary is printed, but scoring proceeds regardless. Review the PII
-#' file after the run (or run [scan_pii()] beforehand) and re-score a cleaned
-#' data frame if needed. Set `pii_check = FALSE` once you have reviewed.
-#'
-#' @section Output files:
-#' Results go to `<output_dir>/<stem>.csv` and failures to
-#' `<output_dir>/<stem>_errors.csv`, where `<stem>` is the template filename
-#' without its extension. Keeping failures separate means the main CSV is
-#' always clean for analysis, and failed rows are automatically retried on
-#' the next run (because they are absent from the main CSV).
-#'
-#' @section Skip logic:
-#' A row is skipped if the same `id` **and** `model` already appear in the
-#' output CSV. This means:
-#' - Restarting an interrupted run picks up where it left off.
-#' - Scoring with a different model appends new rows alongside the old ones,
-#'   which is useful for model comparison studies.
-#'
-#' @section Partial runs:
-#' Use `n` to score a small subset first (e.g. `n = 10`) to verify results
-#' before committing to the full dataset. Run again without `n` to complete
-#' the remaining rows.
-#'
-#' @param df A data frame with at minimum columns `id` (unique row identifier)
-#'   and `text` (the participant text to score).
-#' @param template_path Character scalar. Path to the `.txt` rubric template.
-#' @param params A `run_params` object (from [run_params()]).
-#' @param n Integer. Maximum number of *unscored* rows to process in this run.
-#'   Default `Inf` scores all remaining rows.
-#' @param output_dir Character scalar. Directory where the output CSV is
-#'   written. Created automatically if it does not exist. Default `"data"`.
-#' @param pii_check Logical. Scan all texts for PII before scoring. Flagged
-#'   texts are written to `<stem>_pii.csv` and a warning is printed, but
-#'   scoring proceeds. Set to `FALSE` once you have reviewed. Default `TRUE`.
-#' @param pii_auto_patterns Named character vector of auto-redactable patterns
-#'   passed to [scan_pii()]. Default: [auto_pii_patterns()].
-#' @param pii_disclosure_patterns Named character vector of disclosure patterns
-#'   passed to [scan_pii()]. Default: [disclosure_pii_patterns()].
-#' @param api_key Character. OpenAI API key.
-#'
-#' @return The path to the output CSV, invisibly.
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' library(llmtextcoder)
 #' readRenviron(".env")
 #' df     <- read.csv("participants.csv")
-#' params <- run_params(model = "gpt-4o", temperature = 0)
+#' params <- run_params(model = "gpt-4o")
 #'
-#' # Pilot: sanity-check 10 rows first
-#' score_many(df, "rubric_v1.txt", params, n = 10, output_dir = "results")
-#'
-#' # Full run — already-scored rows are skipped automatically
-#' score_many(df, "rubric_v1.txt", params, output_dir = "results")
-#'
-#' # Skip PII check if you have already reviewed
-#' score_many(df_clean, "rubric_v1.txt", params, pii_check = FALSE, output_dir = "results")
+#' submit_batch(df, "rubric_v1.txt", params, output_dir = "results")
+#' # Close R, come back in up to 24 hours:
+#' collect_batch("rubric_v1.txt", params, output_dir = "results")
 #' }
-score_many <- function(df, template_path, params = run_params(), n = Inf,
-                       output_dir = "data",
-                       pii_check = TRUE,
-                       pii_auto_patterns       = auto_pii_patterns(),
-                       pii_disclosure_patterns = disclosure_pii_patterns(),
-                       api_key = Sys.getenv("OPENAI_API_KEY")) {
+submit_batch <- function(df, template_path, params = run_params(),
+                         n                 = Inf,
+                         output_dir        = "data",
+                         completion_window = "24h",
+                         api_key  = Sys.getenv("OPENAI_API_KEY"),
+                         base_url = "https://api.openai.com/v1") {
   .check_df(df)
 
-  if (pii_check) {
-    pii_path <- sub("\\.csv$", "_pii.csv",
-                    .output_path(template_path, output_dir))
-    dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-    pii_result <- scan_pii(df,
-                           auto_patterns       = pii_auto_patterns,
-                           disclosure_patterns = pii_disclosure_patterns)
-    if (nrow(pii_result) > 0) {
-      n_flagged <- length(unique(pii_result$id))
-      warning(sprintf(
-        "%d text(s) flagged for potential PII — review %s before sharing data.\n  Set pii_check = FALSE once reviewed.",
-        n_flagged, pii_path
-      ), call. = FALSE)
-      write.csv(pii_result, pii_path, row.names = FALSE)
-    }
+  state_path <- .batch_state_path(template_path, params, output_dir)
+  if (file.exists(state_path)) {
+    stop(sprintf(paste0(
+      "A pending batch already exists:\n  %s\n",
+      "Collect it with collect_batch() before submitting a new one."
+    ), state_path))
   }
 
   template       <- read_template(template_path)
   prompt_version <- tools::file_path_sans_ext(basename(template_path))
   out_path       <- .output_path(template_path, output_dir)
-  err_path       <- .error_path(template_path, output_dir)
 
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -189,21 +154,130 @@ score_many <- function(df, template_path, params = run_params(), n = Inf,
   pending  <- head(pending, n)
 
   if (nrow(pending) == 0) {
-    message("Nothing to score — all rows already present in ", out_path)
-    return(invisible(out_path))
+    message("Nothing to submit — all rows already present in ", out_path)
+    return(invisible(NULL))
   }
 
-  message(sprintf("Scoring %d text(s) → %s", nrow(pending), out_path))
-  pb     <- txtProgressBar(min = 0, max = nrow(pending), style = 3)
+  message(sprintf("Building batch of %d text(s)…", nrow(pending)))
+  jsonl <- .build_batch_jsonl(pending, template, params)
+
+  message("Uploading input file…")
+  file_resp <- .upload_jsonl(jsonl, api_key, base_url)
+
+  message("Submitting batch job…")
+  batch_resp <- .create_batch(file_resp$id, completion_window, api_key,
+                              base_url)
+
+  # Store id→text so collect_batch() can reconstruct rows without df
+  texts <- setNames(as.list(pending$text), as.character(pending$id))
+
+  state <- list(
+    batch_id          = batch_resp$id,
+    input_file_id     = file_resp$id,
+    texts             = texts,
+    prompt_version    = prompt_version,
+    model             = params$model,
+    temperature       = params$temperature,
+    completion_window = completion_window,
+    submitted_at      = format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
+  )
+  writeLines(jsonlite::toJSON(state, auto_unbox = TRUE), state_path)
+
+  message(sprintf(
+    "Batch submitted: %s\nCheck status with collect_batch() in up to %s.",
+    batch_resp$id, completion_window
+  ))
+  invisible(batch_resp$id)
+}
+
+#' Collect results from a pending OpenAI Batch API job
+#'
+#' Checks the status of the batch submitted by [submit_batch()]. If complete,
+#' results are written to the same output CSV as [score_many()] and the state
+#' file is removed. If still in progress, the current counts are printed and
+#' the function returns `NULL` — call again later.
+#'
+#' Failures are written to `_errors.csv` and the run continues, consistent
+#' with [score_many()] behaviour.
+#'
+#' @param template_path Character scalar. Path to the `.txt` rubric template.
+#'   Must match what was passed to [submit_batch()].
+#' @param params A `run_params` object. Must match what was passed to
+#'   [submit_batch()].
+#' @param output_dir Character scalar. Must match what was passed to
+#'   [submit_batch()]. Default `"data"`.
+#' @param api_key Character. OpenAI API key.
+#' @param base_url Character. OpenAI API base URL.
+#'
+#' @return The output CSV path invisibly if the batch completed, `NULL` if
+#'   still in progress.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' collect_batch("rubric_v1.txt", run_params(), output_dir = "results")
+#' }
+collect_batch <- function(template_path, params = run_params(),
+                          output_dir = "data",
+                          api_key  = Sys.getenv("OPENAI_API_KEY"),
+                          base_url = "https://api.openai.com/v1") {
+  state_path <- .batch_state_path(template_path, params, output_dir)
+  if (!file.exists(state_path)) {
+    stop(sprintf("No pending batch state found at:\n  %s", state_path))
+  }
+
+  state    <- jsonlite::fromJSON(readLines(state_path, warn = FALSE),
+                                 simplifyVector = FALSE)
+  batch_id <- state$batch_id
+
+  message(sprintf("Checking batch %s…", batch_id))
+  info   <- .get_batch_status(batch_id, api_key, base_url)
+  counts <- info$request_counts
+
+  message(sprintf("Status: %s  (%d completed, %d failed, %d total)",
+                  info$status,
+                  counts$completed %||% 0L,
+                  counts$failed    %||% 0L,
+                  counts$total     %||% 0L))
+
+  terminal <- c("completed", "failed", "expired", "cancelled")
+  if (!info$status %in% terminal) {
+    message("Not ready yet — call collect_batch() again later.")
+    return(invisible(NULL))
+  }
+
+  out_path <- .output_path(template_path, output_dir)
+  err_path <- .error_path(template_path, output_dir)
+
+  if (info$status != "completed") {
+    message(sprintf("Batch ended with status '%s'. No results to collect.",
+                    info$status))
+    file.remove(state_path)
+    return(invisible(NULL))
+  }
+
+  message("Downloading results…")
+  raw_jsonl <- .download_file_content(info$output_file_id, api_key, base_url)
+  lines     <- strsplit(trimws(raw_jsonl), "\n")[[1]]
+  lines     <- lines[nzchar(lines)]
+
+  fake_params <- structure(
+    list(model = state$model, temperature = state$temperature),
+    class = "run_params"
+  )
+
   n_ok   <- 0L
   n_fail <- 0L
 
-  for (i in seq_len(nrow(pending))) {
-    id   <- as.character(pending$id[i])
-    text <- pending$text[i]
+  for (line in lines) {
+    entry <- jsonlite::fromJSON(line, simplifyVector = FALSE)
+    id    <- entry$custom_id
+    text  <- state$texts[[id]] %||% NA_character_
 
     result <- tryCatch({
-      raw    <- call_openai(build_prompt(template, text), params, api_key)
+      if (!is.null(entry$error))
+        stop(entry$error$message)
+      raw    <- entry$response$body$choices[[1]]$message$content
       scores <- parse_response(raw)
       list(ok = TRUE, raw = raw, scores = scores)
     }, error = function(e) {
@@ -211,88 +285,35 @@ score_many <- function(df, template_path, params = run_params(), n = Inf,
     })
 
     if (result$ok) {
-      .append_csv(.to_row(id, text, result$raw, result$scores, prompt_version, params),
-                  out_path)
+      .append_csv(
+        .to_row(id, text, result$raw, result$scores,
+                state$prompt_version, fake_params),
+        out_path
+      )
       n_ok <- n_ok + 1L
     } else {
       .append_csv(
         data.frame(id = id, text = text, error = result$message,
-                   model = params$model,
+                   model     = state$model,
                    scored_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
                    stringsAsFactors = FALSE),
         err_path
       )
       n_fail <- n_fail + 1L
     }
-
-    setTxtProgressBar(pb, i)
   }
 
-  close(pb)
+  file.remove(state_path)
 
   if (n_fail == 0) {
     message(sprintf("Done. %d scored.", n_ok))
   } else {
-    message(sprintf("Done. %d scored, %d failed — see %s.", n_ok, n_fail, err_path))
+    message(sprintf("Done. %d scored, %d failed — see %s.", n_ok, n_fail,
+                    err_path))
   }
 
   invisible(out_path)
 }
 
-#' Report batch scoring progress for a dataset
-#'
-#' Prints a summary of how many rows in `df` have been scored, failed, or are
-#' still pending for the given rubric and model. Useful for checking the status
-#' of an in-progress or interrupted batch run.
-#'
-#' @param df A data frame with at minimum columns `id` and `text` — the same
-#'   data frame passed to [score_many()].
-#' @param template_path Character scalar. Path to the `.txt` rubric template.
-#' @param params A `run_params` object (from [run_params()]). Used to filter
-#'   status by model.
-#' @param output_dir Character scalar. Directory where output files are written.
-#'   Must match the `output_dir` used in [score_many()]. Default `"data"`.
-#'
-#' @return A named list with elements `total`, `scored`, `failed`, `pending`,
-#'   invisibly.
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' df <- read.csv("participants.csv")
-#' status(df, "rubric_v1.txt", run_params(), output_dir = "results")
-#' }
-status <- function(df, template_path, params = run_params(), output_dir = "data") {
-  .check_df(df)
-
-  out_path <- .output_path(template_path, output_dir)
-  err_path <- .error_path(template_path, output_dir)
-  row_keys <- paste(as.character(df$id), params$model, sep = "\t")
-
-  scored <- 0L
-  if (file.exists(out_path)) {
-    existing  <- read.csv(out_path, stringsAsFactors = FALSE)
-    done_keys <- paste(existing$id, existing$model, sep = "\t")
-    scored    <- sum(row_keys %in% done_keys)
-  }
-
-  failed <- 0L
-  if (file.exists(err_path)) {
-    errors   <- read.csv(err_path, stringsAsFactors = FALSE)
-    err_keys <- paste(errors$id, errors$model, sep = "\t")
-    failed   <- sum(row_keys %in% err_keys)
-  }
-
-  pending <- nrow(df) - scored - failed
-
-  cat(sprintf("Rubric     : %s\n", basename(template_path)))
-  cat(sprintf("Model      : %s\n", params$model))
-  cat(sprintf("Output dir : %s\n", output_dir))
-  cat(sprintf("Total      : %d\n", nrow(df)))
-  cat(sprintf("Scored     : %d\n", scored))
-  cat(sprintf("Failed     : %d\n", failed))
-  cat(sprintf("Pending    : %d\n", pending))
-
-  invisible(list(total   = nrow(df), scored  = scored,
-                 failed  = failed,   pending = pending))
-}
+#' @noRd
+`%||%` <- function(x, y) if (is.null(x)) y else x
