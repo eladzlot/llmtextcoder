@@ -7,6 +7,12 @@ navbar:
   structure:
     left: [intro, reference, articles]
 
+articles:
+- title: Guides
+  contents:
+  - running-a-study
+  - security-protocol
+
 home:
   links:
   - text: GitHub

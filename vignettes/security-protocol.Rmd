@@ -1,7 +1,21 @@
-# Data Security Protocol: LLM-Assisted Text Coding
+---
+title: "Data Security Protocol"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Data Security Protocol}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
 
 **HuppertLab, Hebrew University of Jerusalem**
-*For use with `llmtextcoder`. Adaptable for other labs using the OpenAI API.*
+
+> **Public example.** This document describes the specific data security
+> workflow adopted by HuppertLab at the Hebrew University of Jerusalem. It
+> is shared openly so that other labs can use it as a starting point for
+> their own protocols. The technical controls described here — automated PII
+> screening, institution-issued API credentials, and the ChatGPT Edu data
+> agreement — reflect our own setup. Adapt the institutional and contractual
+> details to match your own provider and account type.
 
 ---
 
