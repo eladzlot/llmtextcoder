@@ -15,8 +15,33 @@ knitr::opts_chunk$set(
 )
 ```
 
-This guide walks a new user through a complete study: from installation and
-writing a rubric, to inspecting results and scoring a full dataset.
+`llmtextcoder` is an R package for **LLM-assisted qualitative text coding**.
+In psychology and social science research, participants often provide
+free-text responses — descriptions of experiences, thoughts, or feelings —
+that need to be rated along theoretically motivated dimensions. Traditionally
+this is done by trained human raters: time-consuming, expensive, and subject
+to fatigue and inconsistency.
+
+`llmtextcoder` automates this process. You write a scoring rubric as a plain
+text template, supply your participant data, and the package sends each
+response to an LLM (currently OpenAI's API), receiving structured scores in
+return. The scores are saved to a flat CSV ready for statistical analysis.
+
+### A healthy workflow
+
+A well-run study follows these stages, in order:
+
+1. **Write a rubric** and verify it compiles correctly (free — no API calls).
+2. **Screen and redact** participant data for identifying information before
+   anything leaves your computer.
+3. **Pilot** on a small batch to confirm the rubric is being interpreted as
+   intended.
+4. **Score** the full dataset, with automatic skip logic if the run is
+   interrupted.
+
+The sections below walk through each stage.
+
+---
 
 ## 1. Installation
 
@@ -184,8 +209,18 @@ df <- redact_pii(df)
 
 Disclosure patterns ("my name is", "I live in") capture only the trigger
 phrase, not the name or place that follows. How many words to remove is a
-judgment call per row. Copy the suggested calls from the `scan_pii()` output
-and fill in `n_words`:
+judgment call per row.
+
+Use `pii_code()` to get all suggested calls as a string you can paste
+directly into your script — or copy to the clipboard in one step:
+
+```{r}
+result <- scan_pii(df)
+pii_code(result)          # prints the suggested calls
+# clipr::write_clip(pii_code(result))  # copies them to the clipboard
+```
+
+Paste the output into your script and fill in `n_words` for each row:
 
 ```{r}
 df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = 2, occurrence = 1)
@@ -193,9 +228,9 @@ df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = 1, oc
 df <- redact_words(df, id = "P041", pattern = "location_phrase",  n_words = 3)
 ```
 
-`redact_words()` replaces the trigger plus `n_words` following words with
-`[name disclosure redacted]`. When `occurrence` is omitted, all matches in
-that row are replaced with the same word count.
+`redact_words()` keeps the trigger phrase ("My name is") and replaces only
+the words that follow it with `[name disclosure redacted]`. When `occurrence`
+is omitted, all matches in that row are replaced with the same word count.
 
 ### Skipping the check on subsequent runs
 
