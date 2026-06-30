@@ -31,6 +31,14 @@ library(llmtextcoder)
 You need an OpenAI API key. Sign in at <https://platform.openai.com>, go to
 *API keys*, and create one.
 
+**Important — account tier and data privacy.**
+Not all OpenAI accounts offer the same privacy protections. On consumer
+accounts (including the free tier and standard pay-as-you-go), OpenAI may
+use submitted content to improve its models. Only enterprise-tier accounts
+and institutional agreements (such as ChatGPT Edu) contractually prohibit
+this. If you are working with participant data, confirm with your lab or
+institution which account type you are authorized to use before proceeding.
+
 Never paste your key into a script. Instead, create a file called `.env`
 somewhere safe (typically your project root) and add:
 
