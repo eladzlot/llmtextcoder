@@ -255,9 +255,71 @@ scan_pii <- function(df,
   out
 }
 
+#' @noRd
+.pii_suggested_code <- function(x) {
+  disc <- x[x$tier == "disclosure", , drop = FALSE]
+  if (nrow(disc) == 0) return("")
+
+  redact_lines  <- character(nrow(disc))
+  approve_lines <- character(nrow(disc))
+
+  for (i in seq_len(nrow(disc))) {
+    row   <- disc[i, ]
+    multi <- sum(disc$id == row$id & disc$pattern == row$pattern) > 1
+    if (multi) {
+      redact_lines[i] <- sprintf(
+        'df <- redact_words(df, id = "%s", pattern = "%s", n_words = ?, occurrence = %d)',
+        row$id, row$pattern, row$occurrence)
+      approve_lines[i] <- sprintf(
+        'approved <- pii_approve(approved, id = "%s", pattern = "%s", occurrence = %d, reason = "?")',
+        row$id, row$pattern, row$occurrence)
+    } else {
+      redact_lines[i] <- sprintf(
+        'df <- redact_words(df, id = "%s", pattern = "%s", n_words = ?)',
+        row$id, row$pattern)
+      approve_lines[i] <- sprintf(
+        'approved <- pii_approve(approved, id = "%s", pattern = "%s", reason = "?")',
+        row$id, row$pattern)
+    }
+  }
+
+  paste(c(redact_lines, "", approve_lines), collapse = "\n")
+}
+
+#' Extract suggested redaction and approval code from a PII scan
+#'
+#' Returns the suggested `redact_words()` and `pii_approve()` calls from a
+#' [scan_pii()] result as a single character string. Useful for copying the
+#' code to your script programmatically rather than transcribing from the
+#' printed output.
+#'
+#' @param x A `pii_scan` object returned by [scan_pii()].
+#' @return A character string of R code, one call per line. Returns `""`
+#'   invisibly if there are no disclosure findings.
+#' @export
+#' @seealso [scan_pii()], [redact_words()], [pii_approve()]
+#'
+#' @examples
+#' df <- data.frame(
+#'   id   = "P01",
+#'   text = "My name is Sarah and I live in London.",
+#'   stringsAsFactors = FALSE
+#' )
+#' result <- scan_pii(df)
+#' code   <- pii_code(result)
+#' cat(code)
+#' # Copy to clipboard (requires the clipr package):
+#' # clipr::write_clip(code)
+pii_code <- function(x) {
+  if (!inherits(x, "pii_scan")) stop("'x' must be a pii_scan object")
+  code <- .pii_suggested_code(x)
+  if (!nzchar(code)) return(invisible(""))
+  code
+}
+
 #' @export
 print.pii_scan <- function(x, ...) {
-  appr      <- attr(x, "approved_findings")
+  appr       <- attr(x, "approved_findings")
   n_approved <- if (!is.null(appr)) nrow(appr) else 0L
 
   if (nrow(x) == 0) {
@@ -274,8 +336,8 @@ print.pii_scan <- function(x, ...) {
     cat(sprintf("PII scan: %d match(es) across %d text(s)\n", n_matches, n_texts))
   }
 
-  auto <- x[x$tier == "auto",        , drop = FALSE]
-  disc <- x[x$tier == "disclosure",  , drop = FALSE]
+  auto <- x[x$tier == "auto",       , drop = FALSE]
+  disc <- x[x$tier == "disclosure", , drop = FALSE]
 
   if (nrow(auto) > 0) {
     cat("\nAuto-redactable — use redact_pii() to clear:\n")
@@ -291,39 +353,10 @@ print.pii_scan <- function(x, ...) {
       cat(sprintf("  [%s] %s #%d\n    \"%s\"\n",
                   disc$id[i], disc$pattern[i], disc$occurrence[i], disc$match[i]))
     }
-
-    cat("\nSuggested redact_words() calls — fill in n_words:\n")
-    for (i in seq_len(nrow(disc))) {
-      row   <- disc[i, ]
-      multi <- sum(disc$id == row$id & disc$pattern == row$pattern) > 1
-      if (multi) {
-        cat(sprintf(
-          '  df <- redact_words(df, id = "%s", pattern = "%s", n_words = ?, occurrence = %d)\n',
-          row$id, row$pattern, row$occurrence
-        ))
-      } else {
-        cat(sprintf(
-          '  df <- redact_words(df, id = "%s", pattern = "%s", n_words = ?)\n',
-          row$id, row$pattern
-        ))
-      }
-    }
-
-    cat("\nOr to approve a finding as reviewed (not identifying in context):\n")
-    for (i in seq_len(nrow(disc))) {
-      row   <- disc[i, ]
-      multi <- sum(disc$id == row$id & disc$pattern == row$pattern) > 1
-      if (multi) {
-        cat(sprintf(
-          '  approved <- pii_approve(approved, id = "%s", pattern = "%s", occurrence = %d, reason = "?")\n',
-          row$id, row$pattern, row$occurrence
-        ))
-      } else {
-        cat(sprintf(
-          '  approved <- pii_approve(approved, id = "%s", pattern = "%s", reason = "?")\n',
-          row$id, row$pattern
-        ))
-      }
+    cat("\nSuggested calls — fill in n_words (or use pii_code() to copy all at once):\n")
+    code <- .pii_suggested_code(x)
+    for (line in strsplit(code, "\n")[[1]]) {
+      cat(if (nzchar(line)) sprintf("  %s\n", line) else "\n")
     }
   }
 
