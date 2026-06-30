@@ -6,12 +6,16 @@
 \usage{
 scan_pii(
   df,
+  approved = NULL,
   auto_patterns = auto_pii_patterns(),
   disclosure_patterns = disclosure_pii_patterns()
 )
 }
 \arguments{
 \item{df}{A data frame with at minimum columns \code{id} and \code{text}.}
+
+\item{approved}{A \code{pii_approvals} object from \code{\link[=pii_approve]{pii_approve()}}, or \code{NULL}
+(default). Matching findings are excluded from the actionable output.}
 
 \item{auto_patterns}{Named character vector of auto-redactable patterns.
 Default: \code{\link[=auto_pii_patterns]{auto_pii_patterns()}}.}
@@ -22,7 +26,8 @@ Default: \code{\link[=disclosure_pii_patterns]{disclosure_pii_patterns()}}.}
 \value{
 A \code{pii_scan} data frame with columns \code{id}, \code{pattern}, \code{tier}
 (\code{"auto"} or \code{"disclosure"}), \code{occurrence} (integer, 1-based per
-id–pattern pair), and \code{match} (trigger plus trailing context).
+id–pattern pair), and \code{match} (trigger plus trailing context). Approved
+findings are stored in the \code{"approved_findings"} attribute.
 }
 \description{
 Searches each text against two sets of patterns:
@@ -36,8 +41,12 @@ phrase; the words that follow require per-row human judgment via
 }
 \details{
 The printed output separates the two tiers and generates ready-to-fill
-\code{\link[=redact_words]{redact_words()}} calls for all disclosure matches, with \verb{n_words = ?} as
-the only blank to complete.
+\code{\link[=redact_words]{redact_words()}} and \code{\link[=pii_approve]{pii_approve()}} calls for all disclosure matches.
+
+Once you have reviewed a finding and decided it does not need redaction,
+record that decision with \code{\link[=pii_approve]{pii_approve()}} and pass the result back here via
+\code{approved}. Approved findings are suppressed from the main output and shown
+in a separate "Reviewed and approved" section.
 }
 \examples{
 df <- data.frame(
@@ -47,4 +56,7 @@ df <- data.frame(
   stringsAsFactors = FALSE
 )
 scan_pii(df)
+}
+\seealso{
+\code{\link[=pii_approve]{pii_approve()}}, \code{\link[=redact_pii]{redact_pii()}}, \code{\link[=redact_words]{redact_words()}}
 }

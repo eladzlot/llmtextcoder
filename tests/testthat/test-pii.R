@@ -111,6 +111,81 @@ test_that("scan_pii respects custom auto and disclosure patterns", {
   expect_equal(unique(result$tier), "auto")
 })
 
+# ── pii_approve ───────────────────────────────────────────────────────────────
+
+test_that("pii_approve creates a pii_approvals object", {
+  a <- pii_approve(id = "P01", pattern = "name_disclosure")
+  expect_s3_class(a, "pii_approvals")
+  expect_equal(nrow(a), 1L)
+  expect_equal(a$id, "P01")
+  expect_equal(a$pattern, "name_disclosure")
+  expect_true(is.na(a$occurrence))
+})
+
+test_that("pii_approve accumulates rows", {
+  a <- pii_approve(id = "P01", pattern = "name_disclosure")
+  a <- pii_approve(a, id = "P02", pattern = "location_phrase", occurrence = 1L)
+  expect_equal(nrow(a), 2L)
+  expect_equal(a$id, c("P01", "P02"))
+})
+
+test_that("pii_approve errors when approved is not a pii_approvals object", {
+  expect_error(pii_approve(list(), id = "P01"), "pii_approvals")
+})
+
+test_that("scan_pii suppresses approved findings from main result", {
+  df <- data.frame(
+    id   = "P01",
+    text = "My name is Sarah Johnson and I live in London.",
+    stringsAsFactors = FALSE
+  )
+  approved <- pii_approve(id = "P01", pattern = "name_disclosure")
+  result   <- scan_pii(df, approved = approved)
+  expect_false(any(result$pattern == "name_disclosure"))
+  expect_true(any(result$pattern == "location_phrase"))
+})
+
+test_that("approved findings appear in approved_findings attribute", {
+  df <- data.frame(id = "P01", text = "My name is Alice.",
+                   stringsAsFactors = FALSE)
+  approved <- pii_approve(id = "P01", pattern = "name_disclosure", reason = "test")
+  result   <- scan_pii(df, approved = approved)
+  appr     <- attr(result, "approved_findings")
+  expect_equal(nrow(appr), 1L)
+  expect_equal(appr$pattern, "name_disclosure")
+})
+
+test_that("scan_pii messages when all findings are approved", {
+  df <- data.frame(id = "P01", text = "My name is Alice.",
+                   stringsAsFactors = FALSE)
+  approved <- pii_approve(id = "P01", pattern = "name_disclosure")
+  expect_message(scan_pii(df, approved = approved), "approved")
+})
+
+test_that("pii_approve with NULL occurrence approves all occurrences", {
+  df <- data.frame(
+    id   = "P01",
+    text = "My name is Alice. Also my name is Bob.",
+    stringsAsFactors = FALSE
+  )
+  approved <- pii_approve(id = "P01", pattern = "name_disclosure")
+  result   <- scan_pii(df, approved = approved)
+  expect_false(any(result$pattern == "name_disclosure"))
+})
+
+test_that("pii_approve with specific occurrence suppresses only that occurrence", {
+  df <- data.frame(
+    id   = "P01",
+    text = "My name is Alice. Also my name is Bob.",
+    stringsAsFactors = FALSE
+  )
+  approved <- pii_approve(id = "P01", pattern = "name_disclosure", occurrence = 1L)
+  result   <- scan_pii(df, approved = approved)
+  disc <- result[result$pattern == "name_disclosure", ]
+  expect_equal(nrow(disc), 1L)
+  expect_equal(disc$occurrence, 2L)
+})
+
 # ── redact_pii ────────────────────────────────────────────────────────────────
 
 test_that("redact_pii replaces email", {
@@ -145,11 +220,12 @@ test_that("redact_pii leaves clean text unchanged", {
 
 # ── redact_words ──────────────────────────────────────────────────────────────
 
-test_that("redact_words replaces trigger and following words", {
+test_that("redact_words removes words after trigger, keeps trigger intact", {
   df  <- data.frame(id = "P1", text = "It was hard. My name is Sarah Johnson.",
                     stringsAsFactors = FALSE)
   out <- redact_words(df, id = "P1", pattern = "name_disclosure", n_words = 2)
   expect_false(grepl("Sarah", out$text))
+  expect_true(grepl("My name is", out$text))
   expect_true(grepl("\\[name disclosure redacted\\]", out$text))
 })
 

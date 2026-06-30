@@ -48,5 +48,7 @@ df <- data.frame(
   text = "It was hard. My name is Sarah Johnson and I felt lost.",
   stringsAsFactors = FALSE
 )
+# Keeps "My name is", removes "Sarah Johnson":
+# → "It was hard. My name is [name disclosure redacted] and I felt lost."
 redact_words(df, id = "P01", pattern = "name_disclosure", n_words = 2)
 }

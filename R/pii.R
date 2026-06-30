@@ -60,6 +60,62 @@ default_pii_patterns <- function() {
   c(auto_pii_patterns(), disclosure_pii_patterns())
 }
 
+#' Record PII findings that have been reviewed and need no redaction
+#'
+#' Creates or extends an approvals list. Pass the result to [scan_pii()] via
+#' the `approved` argument to suppress known false-positives from the output.
+#' The approvals list belongs in your analysis script — it is the permanent
+#' record that each finding was reviewed.
+#'
+#' @param approved An existing `pii_approvals` object to extend, or `NULL` to
+#'   start a new one.
+#' @param id The participant identifier of the approved finding.
+#' @param pattern Pattern name to approve, or `NULL` to approve all patterns
+#'   for this id.
+#' @param occurrence Integer occurrence to approve, or `NULL` to approve all
+#'   occurrences of the pattern.
+#' @param reason A brief note explaining why the finding is not identifying.
+#'   Optional but recommended for the audit trail.
+#'
+#' @return A `pii_approvals` data frame.
+#' @export
+#' @seealso [scan_pii()]
+#'
+#' @examples
+#' # First approval — approved starts as NULL
+#' approved <- pii_approve(id = "P041", pattern = "location_phrase",
+#'                         reason = "city name only, not identifying")
+#' # Add another
+#' approved <- pii_approve(approved, id = "P023", pattern = "name_disclosure",
+#'                         occurrence = 2, reason = "refers to fictional character")
+pii_approve <- function(approved = NULL, id, pattern = NULL, occurrence = NULL,
+                        reason = "") {
+  new_row <- data.frame(
+    id         = as.character(id),
+    pattern    = if (is.null(pattern)) NA_character_ else as.character(pattern),
+    occurrence = if (is.null(occurrence)) NA_integer_  else as.integer(occurrence),
+    reason     = as.character(reason),
+    stringsAsFactors = FALSE
+  )
+  if (is.null(approved)) {
+    return(structure(new_row, class = c("pii_approvals", "data.frame")))
+  }
+  if (!inherits(approved, "pii_approvals")) {
+    stop("'approved' must be a pii_approvals object created by pii_approve()")
+  }
+  structure(rbind(approved, new_row), class = c("pii_approvals", "data.frame"))
+}
+
+#' @noRd
+.is_approved <- function(id, pattern, occurrence, approved) {
+  if (is.null(approved) || nrow(approved) == 0) return(FALSE)
+  any(
+    approved$id == id &
+    (is.na(approved$pattern)    | approved$pattern    == pattern) &
+    (is.na(approved$occurrence) | approved$occurrence == occurrence)
+  )
+}
+
 #' @noRd
 .match_with_context <- function(text, pattern, after = 50) {
   m <- gregexpr(pattern, text, perl = TRUE)[[1]]
@@ -111,10 +167,16 @@ default_pii_patterns <- function() {
 #'   [redact_words()].
 #'
 #' The printed output separates the two tiers and generates ready-to-fill
-#' [redact_words()] calls for all disclosure matches, with `n_words = ?` as
-#' the only blank to complete.
+#' [redact_words()] and [pii_approve()] calls for all disclosure matches.
+#'
+#' Once you have reviewed a finding and decided it does not need redaction,
+#' record that decision with [pii_approve()] and pass the result back here via
+#' `approved`. Approved findings are suppressed from the main output and shown
+#' in a separate "Reviewed and approved" section.
 #'
 #' @param df A data frame with at minimum columns `id` and `text`.
+#' @param approved A `pii_approvals` object from [pii_approve()], or `NULL`
+#'   (default). Matching findings are excluded from the actionable output.
 #' @param auto_patterns Named character vector of auto-redactable patterns.
 #'   Default: [auto_pii_patterns()].
 #' @param disclosure_patterns Named character vector of disclosure patterns.
@@ -122,8 +184,10 @@ default_pii_patterns <- function() {
 #'
 #' @return A `pii_scan` data frame with columns `id`, `pattern`, `tier`
 #'   (`"auto"` or `"disclosure"`), `occurrence` (integer, 1-based per
-#'   id–pattern pair), and `match` (trigger plus trailing context).
+#'   id–pattern pair), and `match` (trigger plus trailing context). Approved
+#'   findings are stored in the `"approved_findings"` attribute.
 #' @export
+#' @seealso [pii_approve()], [redact_pii()], [redact_words()]
 #'
 #' @examples
 #' df <- data.frame(
@@ -134,9 +198,24 @@ default_pii_patterns <- function() {
 #' )
 #' scan_pii(df)
 scan_pii <- function(df,
+                     approved            = NULL,
                      auto_patterns       = auto_pii_patterns(),
                      disclosure_patterns = disclosure_pii_patterns()) {
   .check_df(df)
+
+  empty_scan <- function() {
+    structure(
+      data.frame(id = character(), pattern = character(), tier = character(),
+                 occurrence = integer(), match = character(),
+                 stringsAsFactors = FALSE),
+      class = c("pii_scan", "data.frame")
+    )
+  }
+  empty_findings <- data.frame(
+    id = character(), pattern = character(), tier = character(),
+    occurrence = integer(), match = character(),
+    stringsAsFactors = FALSE
+  )
 
   result <- rbind(
     .scan_tier(df, auto_patterns,       "auto"),
@@ -145,21 +224,42 @@ scan_pii <- function(df,
 
   if (is.null(result) || nrow(result) == 0) {
     message("No PII patterns detected.")
-    return(invisible(
-      structure(
-        data.frame(id = character(), pattern = character(), tier = character(),
-                   occurrence = integer(), match = character(),
-                   stringsAsFactors = FALSE),
-        class = c("pii_scan", "data.frame")
-      )
-    ))
+    out <- empty_scan()
+    attr(out, "approved_findings") <- empty_findings
+    return(invisible(out))
   }
 
-  structure(result, class = c("pii_scan", "data.frame"))
+  # Split into approved and unapproved
+  if (!is.null(approved)) {
+    mask <- mapply(
+      .is_approved,
+      result$id, result$pattern, result$occurrence,
+      MoreArgs = list(approved = approved)
+    )
+    approved_findings <- result[mask,  , drop = FALSE]
+    result            <- result[!mask, , drop = FALSE]
+  } else {
+    approved_findings <- empty_findings
+  }
+
+  if (nrow(result) == 0) {
+    n <- nrow(approved_findings)
+    message(sprintf("No unreviewed PII detected (%d finding(s) approved).", n))
+    out <- empty_scan()
+    attr(out, "approved_findings") <- approved_findings
+    return(invisible(out))
+  }
+
+  out <- structure(result, class = c("pii_scan", "data.frame"))
+  attr(out, "approved_findings") <- approved_findings
+  out
 }
 
 #' @export
 print.pii_scan <- function(x, ...) {
+  appr      <- attr(x, "approved_findings")
+  n_approved <- if (!is.null(appr)) nrow(appr) else 0L
+
   if (nrow(x) == 0) {
     cat("No PII detected.\n")
     return(invisible(x))
@@ -167,7 +267,12 @@ print.pii_scan <- function(x, ...) {
 
   n_texts   <- length(unique(x$id))
   n_matches <- nrow(x)
-  cat(sprintf("PII scan: %d match(es) across %d text(s)\n", n_matches, n_texts))
+  if (n_approved > 0) {
+    cat(sprintf("PII scan: %d match(es) across %d text(s)  [%d approved]\n",
+                n_matches, n_texts, n_approved))
+  } else {
+    cat(sprintf("PII scan: %d match(es) across %d text(s)\n", n_matches, n_texts))
+  }
 
   auto <- x[x$tier == "auto",        , drop = FALSE]
   disc <- x[x$tier == "disclosure",  , drop = FALSE]
@@ -202,6 +307,33 @@ print.pii_scan <- function(x, ...) {
           row$id, row$pattern
         ))
       }
+    }
+
+    cat("\nOr to approve a finding as reviewed (not identifying in context):\n")
+    for (i in seq_len(nrow(disc))) {
+      row   <- disc[i, ]
+      multi <- sum(disc$id == row$id & disc$pattern == row$pattern) > 1
+      if (multi) {
+        cat(sprintf(
+          '  approved <- pii_approve(approved, id = "%s", pattern = "%s", occurrence = %d, reason = "?")\n',
+          row$id, row$pattern, row$occurrence
+        ))
+      } else {
+        cat(sprintf(
+          '  approved <- pii_approve(approved, id = "%s", pattern = "%s", reason = "?")\n',
+          row$id, row$pattern
+        ))
+      }
+    }
+  }
+
+  if (n_approved > 0) {
+    cat("\nReviewed and approved — no action needed:\n")
+    for (i in seq_len(nrow(appr))) {
+      reason_str <- if (nzchar(appr$reason[i])) sprintf("  (%s)", appr$reason[i]) else ""
+      cat(sprintf("  [%s] %s #%d%s\n    \"%s\"\n",
+                  appr$id[i], appr$pattern[i], appr$occurrence[i],
+                  reason_str, appr$match[i]))
     }
   }
 
@@ -273,6 +405,8 @@ redact_pii <- function(df, patterns = auto_pii_patterns()) {
 #'   text = "It was hard. My name is Sarah Johnson and I felt lost.",
 #'   stringsAsFactors = FALSE
 #' )
+#' # Keeps "My name is", removes "Sarah Johnson":
+#' # → "It was hard. My name is [name disclosure redacted] and I felt lost."
 #' redact_words(df, id = "P01", pattern = "name_disclosure", n_words = 2)
 redact_words <- function(df, id, pattern, n_words = 3, occurrence = NULL,
                          patterns = disclosure_pii_patterns()) {
@@ -285,26 +419,39 @@ redact_words <- function(df, id, pattern, n_words = 3, occurrence = NULL,
   pat <- patterns[[pattern]]
   if (is.null(pat)) stop(sprintf("Pattern '%s' not found in patterns", pattern))
 
-  text         <- df$text[idx]
-  extended_pat <- paste0("(?:", pat, ")(?:\\s+\\S+){1,", n_words, "}")
-  placeholder  <- sprintf("[%s redacted]", gsub("_", " ", pattern))
+  text        <- df$text[idx]
+  placeholder <- sprintf("[%s redacted]", gsub("_", " ", pattern))
+  words_pat   <- paste0("^(?:\\s+\\S+){1,", n_words, "}")
 
-  if (is.null(occurrence)) {
-    df$text[idx] <- gsub(extended_pat, placeholder, text, perl = TRUE)
+  trig_m   <- gregexpr(pat, text, perl = TRUE)[[1]]
+  trig_len <- attr(trig_m, "match.length")
+
+  if (trig_m[1] == -1) {
+    stop(sprintf("Pattern '%s' not found in id '%s'", pattern, id))
+  }
+
+  targets <- if (is.null(occurrence)) {
+    seq_along(trig_m)
   } else {
-    m <- gregexpr(extended_pat, text, perl = TRUE)[[1]]
-    if (m[1] == -1 || occurrence > length(m)) {
+    if (occurrence > length(trig_m))
       stop(sprintf("Occurrence %d of pattern '%s' not found in id '%s'",
                    occurrence, pattern, id))
-    }
-    start        <- m[occurrence]
-    len          <- attr(m, "match.length")[occurrence]
-    df$text[idx] <- paste0(
-      substr(text, 1, start - 1),
+    occurrence
+  }
+
+  for (occ in rev(targets)) {
+    trig_end <- trig_m[occ] + trig_len[occ] - 1
+    rest      <- substr(text, trig_end + 1, nchar(text))
+    wm        <- regexpr(words_pat, rest, perl = TRUE)
+    if (wm == -1) next
+    wlen <- attr(wm, "match.length")
+    text <- paste0(
+      substr(text, 1, trig_end),
       placeholder,
-      substr(text, start + len, nchar(text))
+      substr(text, trig_end + wlen + 1, nchar(text))
     )
   }
 
+  df$text[idx] <- text
   df
 }
