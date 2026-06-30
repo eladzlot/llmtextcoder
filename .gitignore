@@ -25,3 +25,6 @@ data/
 *_files
 *_cache
 *.rds
+
+# pkgdown build output (deployed via gh-pages branch by Actions)
+docs/

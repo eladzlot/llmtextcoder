@@ -6,3 +6,8 @@
 ^README\.md$
 ^setup_project\.sh$
 ^\.env$
+^CLAUDE\.md$
+^todo\.md$
+^docs$
+^\.github$
+^_pkgdown\.yml$

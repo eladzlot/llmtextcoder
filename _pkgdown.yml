@@ -1,0 +1,13 @@
+url: https://eladzlot.github.io/llmtextcoder
+
+template:
+  bootstrap: 5
+
+navbar:
+  structure:
+    left: [intro, reference, articles]
+
+home:
+  links:
+  - text: GitHub
+    href: https://github.com/eladzlot/llmtextcoder

@@ -11,6 +11,8 @@ Description: A generic engine for LLM-assisted qualitative text coding. Build
     per-row error handling, and full provenance tracking. Developed by
     HuppertLab at the Hebrew University of Jerusalem.
 License: MIT + file LICENSE
+URL: https://eladzlot.github.io/llmtextcoder, https://github.com/eladzlot/llmtextcoder
+BugReports: https://github.com/eladzlot/llmtextcoder/issues
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.1
@@ -22,5 +24,6 @@ Suggests:
     testthat (>= 3.0.0),
     withr,
     knitr,
-    rmarkdown
+    rmarkdown,
+    pkgdown
 VignetteBuilder: knitr
