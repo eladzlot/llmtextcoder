@@ -60,6 +60,22 @@ This is a fundamental difference from consumer services such as the free
 ChatGPT website, where content may be used for training, is stored in a
 personal chat history, and there is no institutional oversight.
 
+OpenAI's adherence to these commitments is verified by independent
+third-party audits and internationally recognised certifications:
+
+| Standard | Scope |
+|----------|-------|
+| **SOC 2 Type II** | Independent audit confirming controls for security, availability, confidentiality, and privacy |
+| **ISO/IEC 27001:2022** | Information Security Management Systems (ISMS) |
+| **ISO/IEC 27017:2015** | Security controls for cloud services |
+| **ISO/IEC 27018:2019** | Protection of personally identifiable information in public cloud environments |
+| **ISO/IEC 27701:2019** | Privacy Information Management System, extending ISO 27001 with privacy governance |
+| **ISO/IEC 42001:2023** | Artificial Intelligence Management System for responsible AI governance |
+
+Additional technical protections include AES-256 encryption at rest and
+TLS 1.2+ encryption in transit, configurable data retention policies, and
+contractual support for GDPR and FERPA compliance.
+
 **The scored outputs are stored on university computers.**
 Results are written directly to researcher-controlled storage. Scores are
 never persisted on OpenAI's infrastructure.
