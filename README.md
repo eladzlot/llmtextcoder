@@ -8,7 +8,7 @@ returns structured scores as a flat CSV.
 
 ```r
 # install.packages("remotes")
-remotes::install_github("your-username/prompter")
+remotes::install_github("eladzlot/llmtextcoder")
 ```
 
 ## Quick start
@@ -22,10 +22,10 @@ readRenviron(".env")
 params <- run_params(model = "gpt-4o", temperature = 0)
 
 # Preview what the model will see (no API call)
-preview_prompt(read_template("rubric_v1.txt"), "Some participant text.")
+preview_prompt(read_template("rubric_v1.txt"), list(text = "Some participant text."))
 
-# Score a single text interactively
-result <- score_one("rubric_v1.txt", "Some participant text.", params)
+# Score a single row interactively
+result <- score_one("rubric_v1.txt", list(text = "Some participant text."), params)
 print_result(result$raw, result$scores)
 
 # Score a data frame, results written to results/rubric_v1.csv
@@ -40,8 +40,9 @@ See `vignette("running-a-study")` for a full walkthrough.
 
 ## Rubric template format
 
-Templates are plain `.txt` files containing `{{text}}` as the injection point.
-The model must be instructed to return JSON (required for structured output):
+Templates are plain `.txt` files with `{{placeholder}}` markers for each
+column of participant data you want to inject. The model must be instructed
+to return JSON (required for structured output):
 
 ```
 Rate the following text on a 1–5 scale for clarity.
@@ -49,6 +50,19 @@ Respond ONLY with: {"clarity": <1-5>}
 
 Text: {{text}}
 ```
+
+You can use as many placeholders as your rubric needs:
+
+```
+Participant ID: {{id}}
+Condition: {{condition}}
+Response: {{text}}
+
+Rate the response above on clarity (1–5).
+Respond ONLY with: {"clarity": <1-5>}
+```
+
+Each placeholder must match a column in your data frame.
 
 ## Key design principles
 

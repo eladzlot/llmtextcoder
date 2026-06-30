@@ -82,7 +82,8 @@ nzchar(Sys.getenv("OPENAI_API_KEY"))  # should be TRUE
 
 A rubric is a plain `.txt` file. The only requirements are:
 
-1. It contains `{{text}}` — the placeholder where participant text gets injected.
+1. It contains one or more `{{placeholder}}` markers where participant data
+   gets injected. Each placeholder name must match a column in your data frame.
 2. It instructs the model to respond in JSON (required for structured output).
 
 Example — save this as `rubric_v1.txt`:
@@ -101,6 +102,10 @@ Text to rate:
 {{text}}
 ```
 
+You can use as many placeholders as your rubric needs. For example, a rubric
+that includes the study condition as context might use `{{condition}}` and
+`{{text}}` — both must be columns in your data frame.
+
 **The rubric is your scientific instrument.** Once you have collected data
 against a version, never edit it in place. Save revisions under a new name
 (`rubric_v2.txt`) so your output files always trace back to the exact rubric
@@ -114,7 +119,7 @@ Before spending any API credits, verify that the prompt assembles correctly:
 template_path    <- "rubric_v1.txt"
 participant_text <- "The instructions were easy to follow and I felt great."
 
-preview_prompt(read_template(template_path), participant_text)
+preview_prompt(read_template(template_path), list(text = participant_text))
 ```
 
 This prints the full prompt with character and word counts. Read it as the
@@ -128,7 +133,7 @@ Once the prompt looks right, test the full round-trip with one text:
 ```{r}
 params <- run_params(model = "gpt-4o", temperature = 0)
 
-result <- score_one(template_path, participant_text, params)
+result <- score_one(template_path, list(text = participant_text), params)
 print_result(result$raw, result$scores)
 ```
 
@@ -145,12 +150,16 @@ scoring 500 participants.
 
 ## 6. Prepare your data
 
-`score_many()` expects a data frame with at minimum two columns:
+`score_many()` expects a data frame with:
 
 | Column | Description |
 |--------|-------------|
 | `id`   | A unique identifier for each row (e.g. a participant ID) |
-| `text` | The text to score |
+| *(placeholder columns)* | One column per `{{placeholder}}` in your rubric template |
+
+If your rubric uses `{{text}}`, your data frame needs a `text` column. If it
+uses `{{text}}` and `{{condition}}`, you need both. The template determines
+what's required — `score_many()` will tell you clearly if a column is missing.
 
 ```{r}
 df <- read.csv("participants.csv", stringsAsFactors = FALSE)
@@ -303,7 +312,7 @@ per-row and written to `results/rubric_v1_errors.csv` — the run continues
 rather than stopping. A summary is printed at the end:
 
 ```
-Scoring 490 text(s) → results/rubric_v1.csv
+Scoring 490 row(s) → results/rubric_v1.csv
 [==========================================] 490/490 (100%)
 Done. 488 scored, 2 failed — see results/rubric_v1_errors.csv.
 ```
@@ -403,7 +412,7 @@ Each row of the output CSV contains:
 | Column | Description |
 |--------|-------------|
 | `id` | The participant identifier from your input data |
-| `text` | The original text (useful for spot-checking) |
+| *(placeholder columns)* | One column per `{{placeholder}}` in the template (e.g. `text`, `condition`) |
 | *(score columns)* | One column per JSON key the model returned |
 | `raw` | The exact JSON string from the model (for auditing) |
 | `prompt_version` | Rubric filename stem (e.g. `rubric_v1`) |

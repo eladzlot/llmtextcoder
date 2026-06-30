@@ -58,3 +58,9 @@ test_that("read_template() reads a file into a single string", {
   result <- read_template(tmp)
   expect_equal(result, "line one\nline two")
 })
+
+test_that("read_template() errors with informative message when file not found", {
+  err <- tryCatch(read_template("/no/such/file.txt"), error = conditionMessage)
+  expect_match(err, "not found")
+  expect_match(err, "/no/such/file.txt")
+})

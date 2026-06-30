@@ -21,7 +21,7 @@ script.dull <- "My alarm rings at 6:30, and I turn it off. I get out of bed and 
 script.ruminate <- "My alarm rings, and I immediately think about the meeting I have this afternoon. I tell myself I've probably prepared enough, but I'm not completely convinced. While brushing my teeth, I wonder whether I should have reviewed my notes one more time. I remind myself that worrying won't help, yet a minute later I'm imagining a question I might not be able to answer. In the kitchen, I make coffee and oatmeal, but my attention keeps drifting back to the meeting. Maybe I'm overthinking it. Then again, if I miss something important, I'll wish I had spent more time preparing. I check my email. There's only a reminder, nothing unexpected, but it brings the meeting back to mind again. The warm shower helps me relax for a while, and I decide I'll look over my notes once I arrive at work instead of thinking about them now. As I leave the apartment, I notice the cool morning air and realize I'm feeling a little calmer, even though the meeting is still sitting quietly in the back of my mind."
 
 params <- run_params()
-result <- score_one("prompts/rumination_v1.txt", script.ruminate, params)
+result <- score_one("prompts/rumination_v1.txt", list(text = script.ruminate), params)
 scores <- result$scores
 
 # --- downstream analysis: overall score (deterministic, no API) ------------
