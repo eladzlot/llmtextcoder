@@ -7,10 +7,15 @@ make_df <- function(ids = c("P1", "P2"), texts = c("text one", "text two")) {
 make_state <- function(dir, stem = "rubric", model = "gpt-4o",
                        batch_id = "batch_abc",
                        ids = c("P1", "P2"), texts = c("text one", "text two")) {
+  rows <- setNames(
+    lapply(texts, function(t) list(text = t)),
+    ids
+  )
   state <- list(
     batch_id          = batch_id,
     input_file_id     = "file_xyz",
-    texts             = setNames(as.list(texts), ids),
+    rows              = rows,
+    placeholders      = "text",
     prompt_version    = stem,
     model             = model,
     temperature       = 0,
@@ -32,7 +37,6 @@ make_output_jsonl <- function(entries) {
 }
 
 # Mock .get_batch_status and .download_file_content; restore on test exit.
-# Returns a list of the original functions (for reference if needed).
 mock_collect <- function(status_fn, download_fn) {
   old_status   <- get(".get_batch_status",     envir = globalenv())
   old_download <- get(".download_file_content", envir = globalenv())
@@ -62,14 +66,14 @@ test_that("state path sanitises unusual model name characters", {
 
 test_that("build_batch_jsonl produces one line per row", {
   lines <- strsplit(
-    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params()), "\n"
+    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params(), "text"), "\n"
   )[[1]]
   expect_equal(length(lines), 2)
 })
 
 test_that("each jsonl line has custom_id matching row id", {
   lines  <- strsplit(
-    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params()), "\n"
+    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params(), "text"), "\n"
   )[[1]]
   parsed <- lapply(lines, jsonlite::fromJSON, simplifyVector = FALSE)
   expect_equal(parsed[[1]]$custom_id, "P1")
@@ -79,7 +83,7 @@ test_that("each jsonl line has custom_id matching row id", {
 test_that("jsonl lines contain injected text in message content", {
   df    <- make_df(texts = c("hello world", "goodbye"))
   lines <- strsplit(
-    .build_batch_jsonl(df, "Say: {{text}}", run_params()), "\n"
+    .build_batch_jsonl(df, "Say: {{text}}", run_params(), "text"), "\n"
   )[[1]]
   parsed <- lapply(lines, jsonlite::fromJSON, simplifyVector = FALSE)
   expect_true(grepl("hello world",
@@ -88,7 +92,7 @@ test_that("jsonl lines contain injected text in message content", {
 
 test_that("jsonl lines request json_object response format", {
   lines  <- strsplit(
-    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params()), "\n"
+    .build_batch_jsonl(make_df(), "Rate: {{text}}", run_params(), "text"), "\n"
   )[[1]]
   parsed <- jsonlite::fromJSON(lines[[1]], simplifyVector = FALSE)
   expect_equal(parsed$body$response_format$type, "json_object")
@@ -124,7 +128,7 @@ test_that("submit_batch messages when nothing is pending", {
   })
 })
 
-test_that("submit_batch writes state file with texts and batch_id", {
+test_that("submit_batch writes state file with rows and batch_id", {
   withr::with_tempdir({
     writeLines("Rate: {{text}}", "rubric.txt")
 
@@ -147,9 +151,10 @@ test_that("submit_batch writes state file with texts and batch_id", {
     expect_true(file.exists(state_file))
     state <- jsonlite::fromJSON(readLines(state_file, warn = FALSE),
                                 simplifyVector = FALSE)
-    expect_equal(state$batch_id,    "batch_test")
-    expect_equal(state$texts[["P1"]], "text one")
-    expect_equal(state$texts[["P2"]], "text two")
+    expect_equal(state$batch_id, "batch_test")
+    expect_equal(state$rows[["P1"]][["text"]], "text one")
+    expect_equal(state$rows[["P2"]][["text"]], "text two")
+    expect_equal(state$placeholders, "text")
   })
 })
 
@@ -215,7 +220,7 @@ test_that("collect_batch returns NULL and preserves state when not ready", {
   })
 })
 
-test_that("collect_batch writes CSV, restores text, removes state when complete", {
+test_that("collect_batch writes CSV, restores data, removes state when complete", {
   withr::with_tempdir({
     writeLines("Rate: {{text}}", "rubric.txt")
     make_state(".")

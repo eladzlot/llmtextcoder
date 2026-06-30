@@ -2,26 +2,26 @@
 % Please edit documentation in R/prompt.R
 \name{build_prompt}
 \alias{build_prompt}
-\title{Build a prompt by injecting participant text into a template}
+\title{Build a prompt by injecting data into a template}
 \usage{
-build_prompt(template, text)
+build_prompt(template, data)
 }
 \arguments{
-\item{template}{Character scalar. The full template string containing
-\code{{{text}}}. Load from disk with \code{\link[=read_template]{read_template()}}.}
+\item{template}{Character scalar. The full template string. Load from disk
+with \code{\link[=read_template]{read_template()}}.}
 
-\item{text}{Character scalar. The participant text to evaluate.}
+\item{data}{Named list (or named character vector). Values to inject,
+one element per \code{{{placeholder}}} in the template.}
 }
 \value{
-Character scalar: the compiled prompt with \code{{{text}}} replaced.
+Character scalar: the compiled prompt with all placeholders replaced.
 }
 \description{
-Reads a template containing the literal placeholder \code{{{text}}} and
-substitutes the participant text in its place. The template is the
-scientific instrument — keep it in \verb{prompts/} as a plain-text file,
-versioned by name (e.g. \code{rubric_v1.txt}, \code{rubric_v2.txt}).
+Reads a template containing \code{{{placeholder}}} markers and substitutes each
+one from the named list \code{data}. All placeholders present in the template
+must have a matching name in \code{data}.
 }
 \examples{
-template <- "Please rate the following text: {{text}}"
-build_prompt(template, "I keep thinking about what went wrong.")
+template <- "Rate this response on clarity: {{response}}"
+build_prompt(template, list(response = "I keep thinking about what went wrong."))
 }

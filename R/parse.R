@@ -13,9 +13,28 @@
 #' @examples
 #' parse_response('{"dimension_a": 3, "dimension_b": 1}')
 parse_response <- function(raw) {
-  stopifnot(is.character(raw), length(raw) == 1L)
-  result <- jsonlite::fromJSON(raw, simplifyVector = FALSE)
+  if (!is.character(raw) || length(raw) != 1L)
+    stop(sprintf(
+      "'raw' must be a single character string (the JSON returned by call_openai()), got %s.",
+      class(raw)[1L]
+    ))
+
+  result <- tryCatch(
+    jsonlite::fromJSON(raw, simplifyVector = FALSE),
+    error = function(e) {
+      stop(sprintf(
+        "Model reply could not be parsed as JSON.\n  Raw reply (first 300 chars): %s\n  Tip: ensure your rubric template explicitly instructs the model to respond in JSON.",
+        substr(raw, 1L, 300L)
+      ), call. = FALSE)
+    }
+  )
+
   if (!is.list(result) || is.null(names(result)))
-    stop("Model reply did not parse to a JSON object.")
+    stop(sprintf(
+      "Model reply parsed as a JSON %s, but a JSON object with named fields is required.\n  Raw reply (first 300 chars): %s\n  Tip: instruct the model to return a JSON object, e.g. {\"score\": 3, \"rationale\": \"...\"}.",
+      if (is.list(result)) "array" else class(result)[1L],
+      substr(raw, 1L, 300L)
+    ))
+
   result
 }

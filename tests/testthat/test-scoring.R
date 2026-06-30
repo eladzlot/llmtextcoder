@@ -1,4 +1,4 @@
-# Tests for batch.R — call_openai is mocked inline per test so no API calls are made.
+# Tests for scoring.R — call_openai is mocked inline per test so no API calls are made.
 
 sample_df <- data.frame(
   id   = c("a", "b", "c"),
@@ -23,15 +23,24 @@ test_that(".error_path() is parallel to output path", {
   expect_equal(.error_path("rubric_v1.txt", "results"), "results/rubric_v1_errors.csv")
 })
 
-# --- Input validation -----------------------------------------------------
+# --- Input validation ---------------------------------------------------------
 
 test_that(".check_df() rejects non-data-frames", {
   expect_error(.check_df(list(id = 1, text = "x")), "data frame")
 })
 
-test_that(".check_df() reports missing columns by name", {
-  expect_error(.check_df(data.frame(id = 1)), "text")
+test_that(".check_df() always requires id", {
   expect_error(.check_df(data.frame(text = "x")), "id")
+})
+
+test_that(".check_df() accepts df with only id when no required_cols set", {
+  expect_silent(.check_df(data.frame(id = 1)))
+})
+
+test_that(".check_df() reports missing required_cols by name", {
+  expect_error(.check_df(data.frame(id = 1), required_cols = "text"), "text")
+  expect_error(.check_df(data.frame(id = 1, text = "x"),
+                         required_cols = c("text", "mood")), "mood")
 })
 
 # --- score_many: core behaviour -------------------------------------------
@@ -131,6 +140,37 @@ test_that("score_many() output has required provenance columns", {
   })
 })
 
+test_that("score_many() writes all placeholder columns to output", {
+  withr::with_tempdir({
+    dir.create("data"); dir.create("prompts")
+    writeLines("Q: {{question}}\nA: {{answer}}", "prompts/multi_v1.txt")
+    old_fn <- call_openai
+    assign("call_openai", function(...) '{"score": 5}', envir = globalenv())
+    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
+
+    df <- data.frame(id = "r1", question = "Why?", answer = "Because.",
+                     stringsAsFactors = FALSE)
+    score_many(df, "prompts/multi_v1.txt", run_params())
+    out <- read.csv("data/multi_v1.csv", stringsAsFactors = FALSE)
+    expect_true("question" %in% names(out))
+    expect_true("answer"   %in% names(out))
+    expect_equal(out$question, "Why?")
+    expect_equal(out$answer,   "Because.")
+  })
+})
+
+test_that("score_many() errors when df is missing a placeholder column", {
+  withr::with_tempdir({
+    dir.create("prompts")
+    writeLines("Q: {{question}}\nA: {{answer}}", "prompts/multi_v1.txt")
+    df <- data.frame(id = "r1", question = "Why?", stringsAsFactors = FALSE)
+    expect_error(
+      score_many(df, "prompts/multi_v1.txt", run_params()),
+      "answer"
+    )
+  })
+})
+
 # --- Error handling -------------------------------------------------------
 
 test_that("score_many() writes failures to error CSV and continues", {
@@ -138,7 +178,6 @@ test_that("score_many() writes failures to error CSV and continues", {
     dir.create("data"); dir.create("prompts")
     writeLines("Rate: {{text}}", "prompts/test_v1.txt")
 
-    # fail on id "b", succeed otherwise
     old_fn <- call_openai
     assign("call_openai", function(prompt, ...) {
       if (grepl("text two", prompt)) stop("simulated API error")
@@ -151,9 +190,9 @@ test_that("score_many() writes failures to error CSV and continues", {
     out <- read.csv("data/test_v1.csv",        stringsAsFactors = FALSE)
     err <- read.csv("data/test_v1_errors.csv", stringsAsFactors = FALSE)
 
-    expect_equal(nrow(out), 2)           # a and c succeeded
+    expect_equal(nrow(out), 2)
     expect_false("b" %in% out$id)
-    expect_equal(nrow(err), 1)           # b failed
+    expect_equal(nrow(err), 1)
     expect_equal(err$id, "b")
     expect_true(nzchar(err$error))
   })
@@ -164,13 +203,11 @@ test_that("score_many() retries failed rows on next run", {
     dir.create("data"); dir.create("prompts")
     writeLines("Rate: {{text}}", "prompts/test_v1.txt")
 
-    # first run: all fail
     old_fn <- call_openai
     assign("call_openai", function(...) stop("down"), envir = globalenv())
     on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
     score_many(sample_df, "prompts/test_v1.txt", run_params())
 
-    # second run: all succeed — failed rows should be retried
     assign("call_openai", function(...) '{"score": 1}', envir = globalenv())
     score_many(sample_df, "prompts/test_v1.txt", run_params())
 

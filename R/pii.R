@@ -100,9 +100,11 @@ pii_approve <- function(approved = NULL, id, pattern = NULL, occurrence = NULL,
   if (is.null(approved)) {
     return(structure(new_row, class = c("pii_approvals", "data.frame")))
   }
-  if (!inherits(approved, "pii_approvals")) {
-    stop("'approved' must be a pii_approvals object created by pii_approve()")
-  }
+  if (!inherits(approved, "pii_approvals"))
+    stop(sprintf(
+      "'approved' must be a pii_approvals object returned by pii_approve(), got %s.\n  Start with: approved <- pii_approve(id = \"P01\", pattern = \"name_disclosure\", reason = \"...\")",
+      class(approved)[1L]
+    ))
   structure(rbind(approved, new_row), class = c("pii_approvals", "data.frame"))
 }
 
@@ -201,7 +203,7 @@ scan_pii <- function(df,
                      approved            = NULL,
                      auto_patterns       = auto_pii_patterns(),
                      disclosure_patterns = disclosure_pii_patterns()) {
-  .check_df(df)
+  .check_df(df, required_cols = "text")
 
   empty_scan <- function() {
     structure(
@@ -311,7 +313,11 @@ scan_pii <- function(df,
 #' # Copy to clipboard (requires the clipr package):
 #' # clipr::write_clip(code)
 pii_code <- function(x) {
-  if (!inherits(x, "pii_scan")) stop("'x' must be a pii_scan object")
+  if (!inherits(x, "pii_scan"))
+    stop(sprintf(
+      "'x' must be a pii_scan object returned by scan_pii(), got %s.",
+      class(x)[1L]
+    ))
   code <- .pii_suggested_code(x)
   if (!nzchar(code)) return(invisible(""))
   code
@@ -399,7 +405,7 @@ print.pii_scan <- function(x, ...) {
 #' )
 #' redact_pii(df)
 redact_pii <- function(df, patterns = auto_pii_patterns()) {
-  .check_df(df)
+  .check_df(df, required_cols = "text")
   result <- df
   for (pat_name in names(patterns)) {
     placeholder <- sprintf("[%s redacted]", gsub("_", " ", pat_name))
@@ -443,14 +449,26 @@ redact_pii <- function(df, patterns = auto_pii_patterns()) {
 #' redact_words(df, id = "P01", pattern = "name_disclosure", n_words = 2)
 redact_words <- function(df, id, pattern, n_words = 3, occurrence = NULL,
                          patterns = disclosure_pii_patterns()) {
-  .check_df(df)
+  .check_df(df, required_cols = "text")
 
   idx <- which(as.character(df$id) == as.character(id))
-  if (length(idx) == 0) stop(sprintf("No row with id '%s'", id))
-  if (length(idx) > 1) stop(sprintf("Multiple rows with id '%s'; ids must be unique", id))
+  if (length(idx) == 0)
+    stop(sprintf(
+      "No row with id '%s' found in df.\n  Available ids (first 10): %s",
+      id, paste(head(as.character(df$id), 10L), collapse = ", ")
+    ))
+  if (length(idx) > 1)
+    stop(sprintf(
+      "Found %d rows with id '%s'; ids must be unique.\n  Remove duplicate rows before calling redact_words().",
+      length(idx), id
+    ))
 
   pat <- patterns[[pattern]]
-  if (is.null(pat)) stop(sprintf("Pattern '%s' not found in patterns", pattern))
+  if (is.null(pat))
+    stop(sprintf(
+      "Pattern '%s' not found.\n  Available patterns: %s\n  Pass a custom 'patterns' argument if you need a different pattern.",
+      pattern, paste(names(patterns), collapse = ", ")
+    ))
 
   text        <- df$text[idx]
   placeholder <- sprintf("[%s redacted]", gsub("_", " ", pattern))
@@ -459,16 +477,20 @@ redact_words <- function(df, id, pattern, n_words = 3, occurrence = NULL,
   trig_m   <- gregexpr(pat, text, perl = TRUE)[[1]]
   trig_len <- attr(trig_m, "match.length")
 
-  if (trig_m[1] == -1) {
-    stop(sprintf("Pattern '%s' not found in id '%s'", pattern, id))
-  }
+  if (trig_m[1] == -1)
+    stop(sprintf(
+      "Pattern '%s' did not match anything in the text for id '%s'.\n  Text (first 150 chars): \"%s\"",
+      pattern, id, substr(df$text[idx], 1L, 150L)
+    ))
 
   targets <- if (is.null(occurrence)) {
     seq_along(trig_m)
   } else {
     if (occurrence > length(trig_m))
-      stop(sprintf("Occurrence %d of pattern '%s' not found in id '%s'",
-                   occurrence, pattern, id))
+      stop(sprintf(
+        "Pattern '%s' occurs %d time(s) in id '%s', but occurrence = %d was requested.\n  Use occurrence = NULL to replace all occurrences, or a value from 1 to %d.",
+        pattern, length(trig_m), id, occurrence, length(trig_m)
+      ))
     occurrence
   }
 

@@ -19,11 +19,22 @@
 #' run_params()
 #' run_params(model = "gpt-4o-mini", temperature = 0.2)
 run_params <- function(model = "gpt-4o", temperature = 0) {
-  stopifnot(
-    is.character(model), nzchar(model),
-    is.numeric(temperature), length(temperature) == 1L,
-    temperature >= 0, temperature <= 2
-  )
+  if (!is.character(model) || length(model) != 1L || !nzchar(model))
+    stop(sprintf(
+      "'model' must be a non-empty character string (e.g. \"gpt-4o\"), got %s.",
+      if (is.character(model)) paste0("\"", model, "\"")
+      else sprintf("%s of length %d", class(model)[1L], length(model))
+    ))
+  if (!is.numeric(temperature) || length(temperature) != 1L)
+    stop(sprintf(
+      "'temperature' must be a single number between 0 and 2, got %s.",
+      paste(class(temperature), collapse = "/")
+    ))
+  if (is.na(temperature) || temperature < 0 || temperature > 2)
+    stop(sprintf(
+      "'temperature' must be between 0 and 2; got %g.\n  Use 0 for deterministic scoring (recommended for rubric coding).",
+      temperature
+    ))
   structure(list(model = model, temperature = temperature), class = "run_params")
 }
 

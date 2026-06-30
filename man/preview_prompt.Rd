@@ -4,23 +4,23 @@
 \alias{preview_prompt}
 \title{Print a compiled prompt to the console}
 \usage{
-preview_prompt(template, text)
+preview_prompt(template, data)
 }
 \arguments{
 \item{template}{Character scalar. The template string (from \code{\link[=read_template]{read_template()}}).}
 
-\item{text}{Character scalar. The participant text to inject.}
+\item{data}{Named list. Values for each \code{{{placeholder}}} in the template.}
 }
 \value{
 The compiled prompt string, invisibly.
 }
 \description{
-Builds a prompt from a template and text, then prints it with a header
+Builds a prompt from a template and data, then prints it with a header
 showing character count, word count, and approximate token count (~4 chars
 per token). Use this \emph{before} making any API call to verify that the
-participant text was injected correctly and the full prompt reads as intended.
+data was injected correctly and the full prompt reads as intended.
 }
 \examples{
-template <- "Please rate this text on a 1-5 scale: {{text}}"
-preview_prompt(template, "I can't stop thinking about yesterday's meeting.")
+template <- "Please rate this response on a 1-5 scale: {{response}}"
+preview_prompt(template, list(response = "I can't stop thinking about yesterday's meeting."))
 }

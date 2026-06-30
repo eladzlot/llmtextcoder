@@ -274,7 +274,7 @@ test_that("redact_words errors on out-of-range occurrence", {
   expect_error(
     redact_words(df, id = "P1", pattern = "name_disclosure",
                  n_words = 1, occurrence = 5),
-    "Occurrence 5"
+    "occurrence = 5"
   )
 })
 

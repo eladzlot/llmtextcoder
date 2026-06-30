@@ -2,7 +2,7 @@
 % Please edit documentation in R/scoring.R
 \name{score_many}
 \alias{score_many}
-\title{Score a data frame of texts against a rubric, with incremental output}
+\title{Score a data frame of rows against a rubric, with incremental output}
 \usage{
 score_many(
   df,
@@ -17,28 +17,25 @@ score_many(
 )
 }
 \arguments{
-\item{df}{A data frame with at minimum columns \code{id} (unique row identifier)
-and \code{text} (the participant text to score).}
+\item{df}{A data frame with column \code{id} and one column per \code{{{placeholder}}}
+in the template.}
 
 \item{template_path}{Character scalar. Path to the \code{.txt} rubric template.}
 
 \item{params}{A \code{run_params} object (from \code{\link[=run_params]{run_params()}}).}
 
-\item{n}{Integer. Maximum number of \emph{unscored} rows to process in this run.
-Default \code{Inf} scores all remaining rows.}
+\item{n}{Integer. Maximum number of \emph{unscored} rows to process. Default
+\code{Inf}.}
 
-\item{output_dir}{Character scalar. Directory where the output CSV is
-written. Created automatically if it does not exist. Default \code{"data"}.}
+\item{output_dir}{Character scalar. Directory for output files. Default
+\code{"data"}.}
 
-\item{pii_check}{Logical. Scan all texts for PII before scoring. Flagged
-texts are written to \verb{<stem>_pii.csv} and a warning is printed, but
-scoring proceeds. Set to \code{FALSE} once you have reviewed. Default \code{TRUE}.}
+\item{pii_check}{Logical. Scan placeholder columns for PII before scoring.
+Default \code{TRUE}.}
 
-\item{pii_auto_patterns}{Named character vector of auto-redactable patterns
-passed to \code{\link[=scan_pii]{scan_pii()}}. Default: \code{\link[=auto_pii_patterns]{auto_pii_patterns()}}.}
+\item{pii_auto_patterns}{Named character vector passed to \code{\link[=scan_pii]{scan_pii()}}.}
 
-\item{pii_disclosure_patterns}{Named character vector of disclosure patterns
-passed to \code{\link[=scan_pii]{scan_pii()}}. Default: \code{\link[=disclosure_pii_patterns]{disclosure_pii_patterns()}}.}
+\item{pii_disclosure_patterns}{Named character vector passed to \code{\link[=scan_pii]{scan_pii()}}.}
 
 \item{api_key}{Character. OpenAI API key.}
 }
@@ -51,41 +48,33 @@ appending one row to the output CSV immediately after each API call. If
 the run is interrupted, restart with the same call — already-scored rows
 are skipped automatically.
 }
+\details{
+The template determines which columns of \code{df} are used: every
+\code{{{placeholder}}} in the template must correspond to a column in \code{df}.
+All placeholder columns are included in the output CSV alongside the scores.
+}
 \section{PII check}{
 
-By default, \code{score_many()} scans all texts for potentially identifying
-information (emails, phone numbers, name disclosures, etc.) before any API
-call is made. Flagged texts are written to \verb{<output_dir>/<stem>_pii.csv}
-and a summary is printed, but scoring proceeds regardless. Review the PII
-file after the run (or run \code{\link[=scan_pii]{scan_pii()}} beforehand) and re-score a cleaned
-data frame if needed. Set \code{pii_check = FALSE} once you have reviewed.
+By default, \code{score_many()} scans all template placeholder columns for
+potentially identifying information before any API call is made. Flagged
+rows are written to \verb{<output_dir>/<stem>_pii.csv} and a warning is printed,
+but scoring proceeds. Review the PII file (or run \code{\link[=scan_pii]{scan_pii()}} beforehand)
+and re-score a cleaned data frame if needed. Set \code{pii_check = FALSE} once
+you have reviewed.
 }
 
 \section{Output files}{
 
 Results go to \verb{<output_dir>/<stem>.csv} and failures to
 \verb{<output_dir>/<stem>_errors.csv}, where \verb{<stem>} is the template filename
-without its extension. Keeping failures separate means the main CSV is
-always clean for analysis, and failed rows are automatically retried on
-the next run (because they are absent from the main CSV).
+without its extension. Failures are retried automatically on the next run.
 }
 
 \section{Skip logic}{
 
 A row is skipped if the same \code{id} \strong{and} \code{model} already appear in the
-output CSV. This means:
-\itemize{
-\item Restarting an interrupted run picks up where it left off.
-\item Scoring with a different model appends new rows alongside the old ones,
-which is useful for model comparison studies.
-}
-}
-
-\section{Partial runs}{
-
-Use \code{n} to score a small subset first (e.g. \code{n = 10}) to verify results
-before committing to the full dataset. Run again without \code{n} to complete
-the remaining rows.
+output CSV. Restarting an interrupted run picks up where it left off; scoring
+with a different model appends new rows alongside the old ones.
 }
 
 \examples{
@@ -95,13 +84,7 @@ readRenviron(".env")
 df     <- read.csv("participants.csv")
 params <- run_params(model = "gpt-4o", temperature = 0)
 
-# Pilot: sanity-check 10 rows first
 score_many(df, "rubric_v1.txt", params, n = 10, output_dir = "results")
-
-# Full run — already-scored rows are skipped automatically
 score_many(df, "rubric_v1.txt", params, output_dir = "results")
-
-# Skip PII check if you have already reviewed
-score_many(df_clean, "rubric_v1.txt", params, pii_check = FALSE, output_dir = "results")
 }
 }

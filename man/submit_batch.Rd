@@ -16,7 +16,8 @@ submit_batch(
 )
 }
 \arguments{
-\item{df}{A data frame with at minimum columns \code{id} and \code{text}.}
+\item{df}{A data frame with column \code{id} and one column per \code{{{placeholder}}}
+in the template.}
 
 \item{template_path}{Character scalar. Path to the \code{.txt} rubric template.}
 
@@ -44,10 +45,13 @@ job completes.
 }
 \details{
 A state file (\verb{<stem>_batch_<model>.json}) is written to \code{output_dir}
-recording the batch ID, submitted row IDs, and original texts. This file is
-required by \code{\link[=collect_batch]{collect_batch()}} and is removed automatically when results are
-collected. If a state file already exists, \code{submit_batch()} errors — collect
-the pending batch first.
+recording the batch ID, submitted row IDs, and original data values. This
+file is required by \code{\link[=collect_batch]{collect_batch()}} and is removed automatically when
+results are collected. If a state file already exists, \code{submit_batch()}
+errors — collect the pending batch first.
+
+The template determines which columns of \code{df} are required: every
+\code{{{placeholder}}} must correspond to a column in \code{df}.
 }
 \section{Multiple concurrent batches}{
 

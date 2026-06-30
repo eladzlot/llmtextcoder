@@ -25,15 +25,21 @@
 #' \dontrun{
 #' readRenviron(".env")
 #' template <- read_template("prompts/rubric_v1.txt")
-#' raw      <- call_openai(build_prompt(template, "Some text."), run_params())
+#' raw      <- call_openai(build_prompt(template, list(text = "Some text.")), run_params())
 #' }
 call_openai <- function(prompt,
                         params   = run_params(),
                         api_key  = Sys.getenv("OPENAI_API_KEY"),
                         base_url = "https://api.openai.com/v1") {
-  if (!nzchar(api_key)) {
-    stop("No API key. Set OPENAI_API_KEY in a gitignored .env file.")
-  }
+  if (!nzchar(api_key))
+    stop(paste0(
+      "No OpenAI API key found (OPENAI_API_KEY is empty).\n",
+      "  1. Obtain your key from the lab Security Manager — do not use a personal account.\n",
+      "  2. Save it to a gitignored .env file in your project root:\n",
+      "       OPENAI_API_KEY=sk-...\n",
+      "  3. Load it at the top of your script:\n",
+      "       readRenviron(\".env\")"
+    ))
 
   resp <- httr2::request(base_url) |>
     httr2::req_url_path_append("chat/completions") |>
@@ -48,6 +54,17 @@ call_openai <- function(prompt,
       max_tries    = 4,
       is_transient = \(r) httr2::resp_status(r) %in% c(429, 500, 502, 503)
     ) |>
+    httr2::req_error(body = function(resp) {
+      status <- httr2::resp_status(resp)
+      body   <- tryCatch(httr2::resp_body_json(resp), error = function(e) NULL)
+      msg    <- body$error$message %||% "(no details)"
+      hint   <- switch(as.character(status),
+        "401" = "\n  Hint: your API key may be invalid or expired — check with the Security Manager.",
+        "403" = "\n  Hint: your account may not have access to this model or endpoint.",
+        "429" = "\n  Hint: rate limit exceeded. The package retries automatically; if this persists, wait a few minutes.",
+        "")
+      sprintf("OpenAI API error %d: %s%s", status, msg, hint)
+    }) |>
     httr2::req_perform()
 
   httr2::resp_body_json(resp)$choices[[1]]$message$content

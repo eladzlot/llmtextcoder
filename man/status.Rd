@@ -7,16 +7,14 @@
 status(df, template_path, params = run_params(), output_dir = "data")
 }
 \arguments{
-\item{df}{A data frame with at minimum columns \code{id} and \code{text} — the same
-data frame passed to \code{\link[=score_many]{score_many()}}.}
+\item{df}{A data frame with at minimum column \code{id}.}
 
 \item{template_path}{Character scalar. Path to the \code{.txt} rubric template.}
 
-\item{params}{A \code{run_params} object (from \code{\link[=run_params]{run_params()}}). Used to filter
-status by model.}
+\item{params}{A \code{run_params} object (from \code{\link[=run_params]{run_params()}}).}
 
-\item{output_dir}{Character scalar. Directory where output files are written.
-Must match the \code{output_dir} used in \code{\link[=score_many]{score_many()}}. Default \code{"data"}.}
+\item{output_dir}{Character scalar. Must match the \code{output_dir} used in
+\code{\link[=score_many]{score_many()}}. Default \code{"data"}.}
 }
 \value{
 A named list with elements \code{total}, \code{scored}, \code{failed}, \code{pending},
@@ -24,8 +22,7 @@ invisibly.
 }
 \description{
 Prints a summary of how many rows in \code{df} have been scored, failed, or are
-still pending for the given rubric and model. Useful for checking the status
-of an in-progress or interrupted batch run.
+still pending for the given rubric and model.
 }
 \examples{
 \dontrun{

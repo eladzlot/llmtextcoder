@@ -46,7 +46,8 @@ DESCRIPTION     Package metadata
 | Function | Signature | Role |
 |----------|-----------|------|
 | `read_template()` | `(path)` | Read a `.txt` rubric file from disk into a single string. |
-| `build_prompt()` | `(template, text)` | Inject participant text into `{{text}}` placeholder. Errors if placeholder absent. |
+| `build_prompt()` | `(template, data)` | Inject named list `data` into `{{placeholder}}` patterns. All placeholders must be present in `data`. Errors if any missing. |
+| `.template_placeholders()` | `(template)` | (internal) Extract unique placeholder names from a template string. |
 
 ### `R/api.R`
 | Function | Signature | Role |
@@ -61,17 +62,17 @@ DESCRIPTION     Package metadata
 ### `R/inspect.R`
 | Function | Signature | Role |
 |----------|-----------|------|
-| `preview_prompt()` | `(template, text)` | Print compiled prompt with char/word counts. No API call — cheap sanity check before spending credits. |
+| `preview_prompt()` | `(template, data)` | Print compiled prompt with char/word counts. `data` is a named list. No API call — cheap sanity check before spending credits. |
 | `print_result()` | `(raw, scores)` | Pretty-print raw JSON and parsed scores side by side. |
 
-### `R/batch.R`
+### `R/scoring.R`
 | Function | Signature | Role |
 |----------|-----------|------|
-| `score_one()` | `(template_path, text, params, api_key)` | Single-text convenience wrapper. Returns `list(raw, scores)`. |
-| `score_many()` | `(df, template_path, params, n, output_dir, api_key)` | Batch score a data frame. Appends one row per text immediately. Skip logic, error CSV, progress bar. |
+| `score_one()` | `(template_path, data, params, api_key)` | Single-row convenience wrapper. `data` is a named list matching template placeholders. Returns `list(raw, scores)`. |
+| `score_many()` | `(df, template_path, params, n, output_dir, pii_check, ...)` | Batch score a data frame. Template placeholders determine which columns are required. Appends one row per API call. Skip logic, error CSV, progress bar, PII scan of all placeholder columns. |
 | `status()` | `(df, template_path, params, output_dir)` | Print scored/failed/pending counts for a dataset. |
 
-Internal helpers (all `@noRd`): `.output_path()`, `.error_path()`, `.to_row()`, `.append_csv()`, `.check_df()`
+Internal helpers (all `@noRd`): `.output_path()`, `.error_path()`, `.to_row(id, data, ...)`, `.append_csv()`, `.check_df(df, required_cols)`
 
 ---
 
@@ -154,7 +155,7 @@ Each row of `<output_dir>/<stem>.csv`:
 | Column | Source |
 |--------|--------|
 | `id` | From input `df$id` |
-| `text` | From input `df$text` |
+| *(placeholder columns)* | One per `{{placeholder}}` in the template, from input `df` |
 | *(score columns)* | One per JSON key returned by the model |
 | `raw` | The exact JSON string from the model |
 | `prompt_version` | Stem of template filename (e.g. `rubric_v1`) |
@@ -167,7 +168,7 @@ Error CSV `<output_dir>/<stem>_errors.csv`:
 | Column | Source |
 |--------|--------|
 | `id` | From input `df$id` |
-| `text` | From input `df$text` |
+| *(placeholder columns)* | One per `{{placeholder}}` in the template |
 | `error` | `conditionMessage()` of the caught error |
 | `model` | From `run_params()` |
 | `scored_at` | ISO 8601 timestamp |
@@ -176,8 +177,6 @@ Error CSV `<output_dir>/<stem>_errors.csv`:
 
 ## What is NOT done yet
 
-- OpenAI Batch API (`submit_batch()` / `collect_batch()`) — reserved naming,
-  not implemented. Use `score_many()` for all current batch work.
 - Multi-model or multi-rubric convenience wrappers — out of scope; call
   `score_many()` twice.
 - `testthat` infrastructure for installed package (currently tests run via

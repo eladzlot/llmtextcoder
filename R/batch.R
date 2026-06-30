@@ -6,14 +6,15 @@
 }
 
 #' @noRd
-.build_batch_jsonl <- function(df, template, params) {
+.build_batch_jsonl <- function(df, template, params, placeholders) {
   lines <- vapply(seq_len(nrow(df)), function(i) {
+    data <- as.list(df[i, placeholders, drop = FALSE])
     body <- list(
       model           = params$model,
       temperature     = params$temperature,
       response_format = list(type = "json_object"),
       messages        = list(list(role    = "user",
-                                  content = build_prompt(template, df$text[i])))
+                                  content = build_prompt(template, data)))
     )
     jsonlite::toJSON(list(
       custom_id = as.character(df$id[i]),
@@ -88,17 +89,21 @@
 #' job completes.
 #'
 #' A state file (`<stem>_batch_<model>.json`) is written to `output_dir`
-#' recording the batch ID, submitted row IDs, and original texts. This file is
-#' required by [collect_batch()] and is removed automatically when results are
-#' collected. If a state file already exists, `submit_batch()` errors — collect
-#' the pending batch first.
+#' recording the batch ID, submitted row IDs, and original data values. This
+#' file is required by [collect_batch()] and is removed automatically when
+#' results are collected. If a state file already exists, `submit_batch()`
+#' errors — collect the pending batch first.
+#'
+#' The template determines which columns of `df` are required: every
+#' `{{placeholder}}` must correspond to a column in `df`.
 #'
 #' @section Multiple concurrent batches:
 #' Each rubric–model combination has its own state file, so batches for
 #' different rubrics or different models can run simultaneously without
 #' interference.
 #'
-#' @param df A data frame with at minimum columns `id` and `text`.
+#' @param df A data frame with column `id` and one column per `{{placeholder}}`
+#'   in the template.
 #' @param template_path Character scalar. Path to the `.txt` rubric template.
 #' @param params A `run_params` object (from [run_params()]).
 #' @param n Integer. Maximum number of pending rows to include. Default `Inf`.
@@ -127,7 +132,9 @@ submit_batch <- function(df, template_path, params = run_params(),
                          completion_window = "24h",
                          api_key  = Sys.getenv("OPENAI_API_KEY"),
                          base_url = "https://api.openai.com/v1") {
-  .check_df(df)
+  template     <- read_template(template_path)
+  placeholders <- .template_placeholders(template)
+  .check_df(df, required_cols = placeholders)
 
   state_path <- .batch_state_path(template_path, params, output_dir)
   if (file.exists(state_path)) {
@@ -137,7 +144,6 @@ submit_batch <- function(df, template_path, params = run_params(),
     ), state_path))
   }
 
-  template       <- read_template(template_path)
   prompt_version <- tools::file_path_sans_ext(basename(template_path))
   out_path       <- .output_path(template_path, output_dir)
 
@@ -153,13 +159,13 @@ submit_batch <- function(df, template_path, params = run_params(),
   pending  <- df[!row_keys %in% done_keys, , drop = FALSE]
   pending  <- head(pending, n)
 
-  if (nrow(pending) == 0) {
+  if (nrow(pending) == 0L) {
     message("Nothing to submit — all rows already present in ", out_path)
     return(invisible(NULL))
   }
 
-  message(sprintf("Building batch of %d text(s)…", nrow(pending)))
-  jsonl <- .build_batch_jsonl(pending, template, params)
+  message(sprintf("Building batch of %d row(s)…", nrow(pending)))
+  jsonl <- .build_batch_jsonl(pending, template, params, placeholders)
 
   message("Uploading input file…")
   file_resp <- .upload_jsonl(jsonl, api_key, base_url)
@@ -168,13 +174,18 @@ submit_batch <- function(df, template_path, params = run_params(),
   batch_resp <- .create_batch(file_resp$id, completion_window, api_key,
                               base_url)
 
-  # Store id→text so collect_batch() can reconstruct rows without df
-  texts <- setNames(as.list(pending$text), as.character(pending$id))
+  # Store id → {col: val, ...} so collect_batch() can reconstruct rows
+  rows <- setNames(
+    lapply(seq_len(nrow(pending)), function(i)
+      as.list(pending[i, placeholders, drop = FALSE])),
+    as.character(pending$id)
+  )
 
   state <- list(
     batch_id          = batch_resp$id,
     input_file_id     = file_resp$id,
-    texts             = texts,
+    rows              = rows,
+    placeholders      = placeholders,
     prompt_version    = prompt_version,
     model             = params$model,
     temperature       = params$temperature,
@@ -222,9 +233,16 @@ collect_batch <- function(template_path, params = run_params(),
                           api_key  = Sys.getenv("OPENAI_API_KEY"),
                           base_url = "https://api.openai.com/v1") {
   state_path <- .batch_state_path(template_path, params, output_dir)
-  if (!file.exists(state_path)) {
-    stop(sprintf("No pending batch state found at:\n  %s", state_path))
-  }
+  if (!file.exists(state_path))
+    stop(sprintf(paste0(
+      "No pending batch state found for this rubric + model combination.\n",
+      "  Expected: %s\n",
+      "  Possible reasons:\n",
+      "    - The batch was never submitted (call submit_batch() first).\n",
+      "    - The batch was already collected and the state file was cleaned up.\n",
+      "    - template_path, params$model, or output_dir does not match what was\n",
+      "      passed to submit_batch()."
+    ), state_path))
 
   state    <- jsonlite::fromJSON(readLines(state_path, warn = FALSE),
                                  simplifyVector = FALSE)
@@ -266,13 +284,16 @@ collect_batch <- function(template_path, params = run_params(),
     class = "run_params"
   )
 
+  placeholders <- state$placeholders %||% character(0)
+
   n_ok   <- 0L
   n_fail <- 0L
 
   for (line in lines) {
     entry <- jsonlite::fromJSON(line, simplifyVector = FALSE)
     id    <- entry$custom_id
-    text  <- state$texts[[id]] %||% NA_character_
+    data  <- state$rows[[id]] %||%
+      setNames(as.list(rep(NA_character_, length(placeholders))), placeholders)
 
     result <- tryCatch({
       if (!is.null(entry$error))
@@ -286,17 +307,19 @@ collect_batch <- function(template_path, params = run_params(),
 
     if (result$ok) {
       .append_csv(
-        .to_row(id, text, result$raw, result$scores,
+        .to_row(id, data, result$raw, result$scores,
                 state$prompt_version, fake_params),
         out_path
       )
       n_ok <- n_ok + 1L
     } else {
       .append_csv(
-        data.frame(id = id, text = text, error = result$message,
-                   model     = state$model,
-                   scored_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
-                   stringsAsFactors = FALSE),
+        cbind(data.frame(id = id, stringsAsFactors = FALSE),
+              as.data.frame(data, stringsAsFactors = FALSE),
+              data.frame(error     = result$message,
+                         model     = state$model,
+                         scored_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
+                         stringsAsFactors = FALSE)),
         err_path
       )
       n_fail <- n_fail + 1L
@@ -305,7 +328,7 @@ collect_batch <- function(template_path, params = run_params(),
 
   file.remove(state_path)
 
-  if (n_fail == 0) {
+  if (n_fail == 0L) {
     message(sprintf("Done. %d scored.", n_ok))
   } else {
     message(sprintf("Done. %d scored, %d failed — see %s.", n_ok, n_fail,

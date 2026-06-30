@@ -2,11 +2,11 @@
 % Please edit documentation in R/scoring.R
 \name{score_one}
 \alias{score_one}
-\title{Score a single text against a rubric template}
+\title{Score a single row of data against a rubric template}
 \usage{
 score_one(
   template_path,
-  text,
+  data,
   params = run_params(),
   api_key = Sys.getenv("OPENAI_API_KEY")
 )
@@ -14,7 +14,7 @@ score_one(
 \arguments{
 \item{template_path}{Character scalar. Path to the \code{.txt} rubric template.}
 
-\item{text}{Character scalar. The participant text to score.}
+\item{data}{Named list. Values for each \code{{{placeholder}}} in the template.}
 
 \item{params}{A \code{run_params} object (from \code{\link[=run_params]{run_params()}}).}
 
@@ -37,7 +37,7 @@ Pass the result to \code{\link[=print_result]{print_result()}} to display it, or
 \dontrun{
 readRenviron(".env")
 result <- score_one("rubric_v1.txt",
-                    "I keep worrying about the same thing.",
+                    list(text = "I keep worrying about the same thing."),
                     run_params())
 print_result(result$raw, result$scores)
 }
