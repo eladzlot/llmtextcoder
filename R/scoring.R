@@ -1,5 +1,11 @@
 
 #' @noRd
+.fmt_elapsed <- function(secs) {
+  if (secs < 60) sprintf("%ds", round(secs))
+  else sprintf("%dm %02ds", floor(secs / 60), round(secs %% 60))
+}
+
+#' @noRd
 .to_row <- function(id, data, raw, scores, prompt_version, params) {
   cbind(
     data.frame(id = id, stringsAsFactors = FALSE),
@@ -189,11 +195,13 @@ score_many <- function(df, template, output_name, params = run_params(), n = Inf
   }
 
   message(sprintf("Scoring %d row(s) → %s", nrow(pending), out_path))
-  pb     <- txtProgressBar(min = 0, max = nrow(pending), style = 3)
+  t0     <- Sys.time()
   n_ok   <- 0L
   n_fail <- 0L
+  total  <- nrow(pending)
+  width  <- 30L
 
-  for (i in seq_len(nrow(pending))) {
+  for (i in seq_len(total)) {
     id   <- as.character(pending$id[i])
     data <- as.list(pending[i, placeholders, drop = FALSE])
 
@@ -223,16 +231,23 @@ score_many <- function(df, template, output_name, params = run_params(), n = Inf
       n_fail <- n_fail + 1L
     }
 
-    setTxtProgressBar(pb, i)
+    filled  <- round(width * i / total)
+    elapsed <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
+    cat(sprintf("\r  [%s%s] %d/%d (%d%%) | %s elapsed  ",
+                strrep("=", filled), strrep(" ", width - filled),
+                i, total, round(100 * i / total),
+                .fmt_elapsed(elapsed)))
+    flush.console()
   }
 
-  close(pb)
+  cat("\n")
+  total_elapsed <- as.numeric(difftime(Sys.time(), t0, units = "secs"))
 
   if (n_fail == 0L) {
-    message(sprintf("Done. %d scored.", n_ok))
+    message(sprintf("Done. %d scored in %s.", n_ok, .fmt_elapsed(total_elapsed)))
   } else {
-    message(sprintf("Done. %d scored, %d failed — see %s.", n_ok, n_fail,
-                    err_path))
+    message(sprintf("Done. %d scored, %d failed in %s — see %s.",
+                    n_ok, n_fail, .fmt_elapsed(total_elapsed), err_path))
   }
 
   invisible(out_path)

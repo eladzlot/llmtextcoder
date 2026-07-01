@@ -1,5 +1,11 @@
 # CLAUDE.md — AI context for llmtextcoder
 
+## CRITICAL workflow rules
+
+**NEVER commit or push without explicit instruction from the user.**
+Always stop and ask, even if the task feels complete. "Commit and push" must
+be a direct user request, not inferred from context.
+
 ## Project identity
 
 **Package:** `llmtextcoder`
