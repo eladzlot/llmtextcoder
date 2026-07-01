@@ -1,3 +1,17 @@
+# --- read_template -----------------------------------------------------------
+
+test_that("read_template() reads a file into a single string", {
+  tmp <- tempfile()
+  writeLines(c("line one", "line two"), tmp)
+  expect_equal(read_template(tmp), "line one\nline two")
+})
+
+test_that("read_template() errors with informative message when file not found", {
+  err <- tryCatch(read_template("/no/such/file.txt"), error = conditionMessage)
+  expect_match(err, "not found")
+  expect_match(err, "/no/such/file.txt")
+})
+
 # --- .template_placeholders --------------------------------------------------
 
 test_that(".template_placeholders() extracts single placeholder", {

@@ -23,9 +23,15 @@ this is done by trained human raters: time-consuming, expensive, and subject
 to fatigue and inconsistency.
 
 `llmtextcoder` automates this process. You write a scoring rubric as a plain
-text template, supply your participant data, and the package sends each
-response to an LLM (currently OpenAI's API), receiving structured scores in
-return. The scores are saved to a flat CSV ready for statistical analysis.
+text template, supply your data, and the package sends each response to an
+LLM (currently OpenAI's API), receiving structured scores in return. The
+scores are saved to a flat CSV ready for statistical analysis.
+
+All examples in this vignette use `varieties_testimonials()`, a bundled
+dataset of 47 first-person psychological narratives drawn from William James's
+*The Varieties of Religious Experience* (1902, public domain). The texts are
+real, psychologically varied, and ready to run — you can copy every code block
+and execute it immediately after supplying an API key.
 
 ### A healthy workflow
 
@@ -78,53 +84,76 @@ readRenviron(".env")
 nzchar(Sys.getenv("OPENAI_API_KEY"))  # should be TRUE
 ```
 
-## 3. Write your rubric template
+## 3. Write your rubric
 
-A rubric is a plain `.txt` file. The only requirements are:
+A rubric is a string with `{{placeholder}}` markers where participant data
+gets injected. Two requirements:
 
-1. It contains one or more `{{placeholder}}` markers where participant data
-   gets injected. Each placeholder name must match a column in your data frame.
-2. It instructs the model to respond in JSON (required for structured output).
+1. Each placeholder name must match a column in your data frame.
+2. The rubric must instruct the model to respond in JSON (OpenAI requirement).
 
-Example — save this as `rubric_v1.txt`:
+You can define a rubric inline or load it from a `.txt` file.
 
-```
-You are an expert rater. Score the following text on two dimensions,
-each on a 1–5 scale.
+**Inline** (convenient for interactive work and vignettes):
 
-Dimension 1 — Clarity (1 = very unclear, 5 = very clear)
-Dimension 2 — Emotional tone (1 = very negative, 5 = very positive)
+```{r}
+rubric <- "
+You are an expert clinical psychologist coding first-person narrative accounts.
+Rate the excerpt below on three psychological dimensions.
 
-Respond ONLY with a JSON object in this exact format and nothing else:
-{"clarity": <1-5>, "emotional_tone": <1-5>}
+Dimension 1 — EMOTIONAL VALENCE (1-5)
+1 = strongly positive affect  5 = strongly negative affect
 
-Text to rate:
+Dimension 2 — HOPELESSNESS (1-5)
+1 = clear hope or agency  5 = complete hopelessness, no future orientation
+
+Dimension 3 — SOMATIC DISTRESS (1-5)
+1 = no bodily complaints  5 = pervasive physical suffering described
+
+Respond ONLY with a JSON object, nothing else:
+{\"valence\": <1-5>, \"hopelessness\": <1-5>, \"somatic_distress\": <1-5>}
+
+Excerpt:
 {{text}}
+"
 ```
 
-You can use as many placeholders as your rubric needs. For example, a rubric
-that includes the study condition as context might use `{{condition}}` and
-`{{text}}` — both must be columns in your data frame.
+**From a file** (recommended once you start collecting data):
+
+```{r}
+rubric <- paste(readLines("prompts/clinical_v1.txt"), collapse = "\n")
+```
 
 **The rubric is your scientific instrument.** Once you have collected data
 against a version, never edit it in place. Save revisions under a new name
-(`rubric_v2.txt`) so your output files always trace back to the exact rubric
-that produced them.
+(`clinical_v2.txt`) so results always trace back to the exact rubric that
+produced them.
 
-## 4. Inspect the compiled prompt (no API cost)
-
-Before spending any API credits, verify that the prompt assembles correctly:
+## 4. Load the example data and inspect the prompt
 
 ```{r}
-template_path    <- "rubric_v1.txt"
-participant_text <- "The instructions were easy to follow and I felt great."
-
-preview_prompt(read_template(template_path), list(text = participant_text))
+df <- varieties_testimonials()
+head(df[, c("id", "theme", "word_count")])
+#>        id        theme word_count
+#> 1 james_01     presence        223
+#> 2 james_02  faith_doubt        473
+#> 3 james_03     mystical        229
+#> 4 james_04     mystical        248
+#> 5 james_05     mystical        541
+#> 6 james_06 illness_healing       393
 ```
 
-This prints the full prompt with character and word counts. Read it as the
-model will see it — confirm the participant text landed in the right place and
-the rubric instructions are complete.
+Before spending any API credits, verify that the prompt assembles correctly
+for one row:
+
+```{r}
+entry <- df[df$id == "james_10", ]   # depression theme
+preview_prompt(rubric, list(text = entry$text))
+```
+
+This prints the full compiled prompt with character and word counts. Read it
+as the model will see it — confirm the text landed in the right place and the
+rubric instructions are complete.
 
 ## 5. Score a single text interactively
 
@@ -133,8 +162,15 @@ Once the prompt looks right, test the full round-trip with one text:
 ```{r}
 params <- run_params(model = "gpt-4o", temperature = 0)
 
-result <- score_one(template_path, list(text = participant_text), params)
+result <- score_one(rubric, list(text = entry$text), params)
 print_result(result$raw, result$scores)
+#> Raw JSON:
+#> {"valence": 5, "hopelessness": 5, "somatic_distress": 4}
+#>
+#> Parsed scores:
+#>   valence         : 5
+#>   hopelessness    : 5
+#>   somatic_distress: 4
 ```
 
 `print_result()` shows both the raw JSON the model returned and the parsed
@@ -144,9 +180,17 @@ scores side by side. Ask yourself:
 - Are the values in the right range?
 - Does the rating make intuitive sense for this text?
 
-Repeat with two or three contrasting texts before moving on. This sanity check
-costs a few API calls but can save you from discovering a rubric problem after
-scoring 500 participants.
+Repeat with two or three contrasting texts before moving on:
+
+```{r}
+# james_33 is rated "mystical" — should score very differently
+mystical <- df[df$id == "james_33", ]
+result2  <- score_one(rubric, list(text = mystical$text), params)
+print_result(result2$raw, result2$scores)
+```
+
+This sanity check costs a few API calls but can save you from discovering a
+rubric problem after scoring 500 participants.
 
 ## 6. Prepare your data
 
@@ -154,16 +198,23 @@ scoring 500 participants.
 
 | Column | Description |
 |--------|-------------|
-| `id`   | A unique identifier for each row (e.g. a participant ID) |
-| *(placeholder columns)* | One column per `{{placeholder}}` in your rubric template |
+| `id`   | A unique identifier for each row |
+| *(placeholder columns)* | One column per `{{placeholder}}` in your rubric |
 
-If your rubric uses `{{text}}`, your data frame needs a `text` column. If it
-uses `{{text}}` and `{{condition}}`, you need both. The template determines
-what's required — `score_many()` will tell you clearly if a column is missing.
+`varieties_testimonials()` already has the right shape — an `id` column and a
+`text` column matching the `{{text}}` placeholder in the rubric above:
 
 ```{r}
-df <- read.csv("participants.csv", stringsAsFactors = FALSE)
-head(df[, c("id", "text")])
+# Use the full dataset or a subset
+batch <- df[, c("id", "text")]
+nrow(batch)   # 47
+```
+
+For your own data:
+
+```{r}
+batch <- read.csv("raw/participants.csv", stringsAsFactors = FALSE)
+head(batch[, c("id", "text")])
 ```
 
 The `id` column is what the skip logic uses to avoid rescoring rows that have
@@ -172,11 +223,18 @@ already been processed.
 ## 7. Scan and redact identifying information
 
 Before sending any text to an external API, scan for potentially identifying
-information (PII). This is especially important when participants provided
-free-text responses.
+information (PII). The James testimonials are public domain and contain no
+PII, so we skip the check for them:
 
 ```{r}
-pii_result <- scan_pii(df)
+score_many(batch, rubric, "clinical_v1", params,
+           pii_check = FALSE, output_dir = "results")
+```
+
+For your own participant data, always run the scan:
+
+```{r}
+pii_result <- scan_pii(batch)
 ```
 
 `scan_pii()` separates findings into two tiers and prints a ready-to-use
@@ -192,85 +250,41 @@ Auto-redactable — use redact_pii() to clear:
 Needs review — use redact_words() per row:
   [P023] name_disclosure #1
     "My name is Sarah Johnson and I…"
-  [P023] name_disclosure #2
-    "my friend's name is David and…"
-  [P041] location_phrase #1
-    "I live in Tel Aviv near the old…"
-
-Suggested redact_words() calls — fill in n_words:
-  df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = ?, occurrence = 1)
-  df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = ?, occurrence = 2)
-  df <- redact_words(df, id = "P041", pattern = "location_phrase", n_words = ?)
 ```
 
 ### Step 1 — Auto-redact structural PII
 
 **Never edit your source data file.** Raw data is a scientific record; all
 changes must live in code. `redact_pii()` replaces structural PII (emails,
-phones, Prolific IDs, etc.) globally using the detection regex — the original
-values never appear in your script:
+phones, Prolific IDs, etc.) globally:
 
 ```{r}
-df <- redact_pii(df)
+batch <- redact_pii(batch)
 ```
 
 ### Step 2 — Redact disclosure phrases per row
 
 Disclosure patterns ("my name is", "I live in") capture only the trigger
-phrase, not the name or place that follows. How many words to remove is a
+phrase, not the identifying word that follows. How many words to remove is a
 judgment call per row.
 
-Use `pii_code()` to get all suggested calls as a string you can paste
-directly into your script — or copy to the clipboard in one step:
-
 ```{r}
-result <- scan_pii(df)
-pii_code(result)          # prints the suggested calls
-# clipr::write_clip(pii_code(result))  # copies them to the clipboard
+result <- scan_pii(batch)
+pii_code(result)          # prints suggested redact_words() calls
 ```
 
-Paste the output into your script and fill in `n_words` for each row:
+Paste the output into your script and fill in `n_words`:
 
 ```{r}
-df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = 2, occurrence = 1)
-df <- redact_words(df, id = "P023", pattern = "name_disclosure", n_words = 1, occurrence = 2)
-df <- redact_words(df, id = "P041", pattern = "location_phrase",  n_words = 3)
-```
-
-`redact_words()` keeps the trigger phrase ("My name is") and replaces only
-the words that follow it with `[name disclosure redacted]`. When `occurrence`
-is omitted, all matches in that row are replaced with the same word count.
-
-### Skipping the check on subsequent runs
-
-`score_many()` runs `scan_pii()` automatically (default `pii_check = TRUE`).
-Once redaction is complete, set `pii_check = FALSE`:
-
-```{r}
-score_many(df, template_path, params,
-           pii_check = FALSE, output_dir = output_dir)
-```
-
-### Customising the patterns
-
-Add domain-specific patterns or remove noisy ones by modifying the two
-pattern sets independently:
-
-```{r}
-auto <- auto_pii_patterns()
-auto["national_id"] <- "\\b\\d{9}\\b"  # add Israeli national ID
-auto <- auto[names(auto) != "url"]      # URLs not sensitive in this study
-
-scan_pii(df, auto_patterns = auto)
-redact_pii(df, patterns = auto)
+batch <- redact_words(batch, id = "P023", pattern = "name_disclosure", n_words = 2)
+batch <- redact_words(batch, id = "P041", pattern = "location_phrase",  n_words = 3)
 ```
 
 ## 8. Choose an output directory
 
 `score_many()` and `status()` both take an `output_dir` argument. Results are
-written to `<output_dir>/<rubric-stem>.csv` — so the filename always encodes
-which rubric version produced it. Choose a directory that makes sense for your
-project:
+written to `<output_dir>/<output_name>.csv` — so the filename always encodes
+which rubric version produced it:
 
 ```{r}
 output_dir <- "results"   # or "data", "output", an absolute path, etc.
@@ -284,18 +298,19 @@ Always run a pilot before committing the full dataset. Use `n` to limit how
 many rows are processed:
 
 ```{r}
-score_many(df, template_path, params,
-           n = 10, pii_check = FALSE, output_dir = output_dir)
+score_many(batch, rubric, "clinical_v1", params,
+           n = 5, pii_check = FALSE, output_dir = output_dir)
 ```
 
-Open `results/rubric_v1.csv` and check:
+Open `results/clinical_v1.csv` and check:
 
-- Are all expected score columns present?
+- Are all expected score columns present (`valence`, `hopelessness`,
+  `somatic_distress`)?
 - Do the scores look reasonable across varied texts?
 - Is there any evidence the rubric is being misread?
 
-If something is wrong, fix the rubric (save it as `rubric_v2.txt`) and pilot
-again before touching the full dataset.
+If something is wrong, fix the rubric and change `output_name` to
+`"clinical_v2"` before re-piloting. Never mix rubric versions in one CSV.
 
 ## 10. Full batch run
 
@@ -303,31 +318,31 @@ Once the pilot looks good, run the full dataset. Rows already scored in the
 pilot are automatically skipped:
 
 ```{r}
-score_many(df, template_path, params,
+score_many(batch, rubric, "clinical_v1", params,
            pii_check = FALSE, output_dir = output_dir)
 ```
 
 A progress bar shows completion in real time. Individual failures are caught
-per-row and written to `results/rubric_v1_errors.csv` — the run continues
+per-row and written to `results/clinical_v1_errors.csv` — the run continues
 rather than stopping. A summary is printed at the end:
 
 ```
-Scoring 490 row(s) → results/rubric_v1.csv
-[==========================================] 490/490 (100%)
-Done. 488 scored, 2 failed — see results/rubric_v1_errors.csv.
+Scoring 42 row(s) → results/clinical_v1.csv
+[==========================================] 42/42 (100%)
+Done. 41 scored, 1 failed — see results/clinical_v1_errors.csv.
 ```
 
 Check status at any point:
 
 ```{r}
-status(df, template_path, params, output_dir = output_dir)
-# Rubric     : rubric_v1.txt
+status(batch, "clinical_v1", params, output_dir = output_dir)
+# Rubric     : clinical_v1
 # Model      : gpt-4o
 # Output dir : results
-# Total      : 500
-# Scored     : 488
-# Failed     :   2
-# Pending    :  10
+# Total      : 47
+# Scored     : 46
+# Failed     :  1
+# Pending    :  0
 ```
 
 ## 11. Handling interruptions
@@ -337,13 +352,15 @@ same command again. Completed rows are skipped, failed rows are retried:
 
 ```{r}
 # Safe to run again at any time
-score_many(df, template_path, params, output_dir = output_dir)
+score_many(batch, rubric, "clinical_v1", params,
+           pii_check = FALSE, output_dir = output_dir)
 ```
 
-To process only the next batch of N rows:
+To process only the next N rows:
 
 ```{r}
-score_many(df, template_path, params, n = 50, output_dir = output_dir)
+score_many(batch, rubric, "clinical_v1", params,
+           n = 10, pii_check = FALSE, output_dir = output_dir)
 ```
 
 ## 12. Large datasets: async batch scoring
@@ -355,46 +372,30 @@ returns results within 24 hours, and costs **50% less** than the synchronous
 API. `score_many()` calls the API once per text in sequence — fine for pilots
 and moderate datasets, but slow and expensive at scale.
 
+The batch API still takes a template **file path** (the path is used to name
+the state file on disk):
+
 ### Submit the job
 
 ```{r}
-submit_batch(df, template_path, params, output_dir = output_dir)
+submit_batch(batch, "prompts/clinical_v1.txt", params, output_dir = output_dir)
 ```
 
 This builds a JSONL file of all pending rows (same skip logic as
 `score_many()`), uploads it to OpenAI, and submits the batch job. A state
-file `<output_dir>/<stem>_batch_<model>.json` is written immediately — it
-records the batch ID and the original texts so you can close R and come back
-later without losing anything.
+file `<output_dir>/clinical_v1_batch_<model>.json` is written immediately.
 
 ### Collect results
 
 When you return (anywhere from a few minutes to 24 hours later), call:
 
 ```{r}
-collect_batch(template_path, params, output_dir = output_dir)
+collect_batch("prompts/clinical_v1.txt", params, output_dir = output_dir)
 ```
 
 If the job is still running, the current progress is printed and the function
 returns `NULL` — call again later. When complete, results are parsed and
-written to the same CSV as `score_many()`, failures go to `_errors.csv`, and
-the state file is removed.
-
-### Running multiple batches simultaneously
-
-Each rubric–model combination has its own state file, so you can submit
-batches for different rubrics or models at the same time:
-
-```{r}
-submit_batch(df, "rubric_v1.txt", run_params("gpt-4o"),      output_dir = output_dir)
-submit_batch(df, "rubric_v1.txt", run_params("gpt-4o-mini"), output_dir = output_dir)
-submit_batch(df, "rubric_v2.txt", run_params("gpt-4o"),      output_dir = output_dir)
-
-# Later — collect each independently
-collect_batch("rubric_v1.txt", run_params("gpt-4o"),      output_dir = output_dir)
-collect_batch("rubric_v1.txt", run_params("gpt-4o-mini"), output_dir = output_dir)
-collect_batch("rubric_v2.txt", run_params("gpt-4o"),      output_dir = output_dir)
-```
+written to the same CSV as `score_many()`.
 
 ### Choosing between score_many() and submit_batch()
 
@@ -407,27 +408,36 @@ collect_batch("rubric_v2.txt", run_params("gpt-4o"),      output_dir = output_di
 
 ## 13. Reading and using your results
 
-Each row of the output CSV contains:
+Each row of `results/clinical_v1.csv` contains:
 
 | Column | Description |
 |--------|-------------|
-| `id` | The participant identifier from your input data |
-| *(placeholder columns)* | One column per `{{placeholder}}` in the template (e.g. `text`, `condition`) |
-| *(score columns)* | One column per JSON key the model returned |
+| `id` | The identifier from your input data |
+| `valence`, `hopelessness`, `somatic_distress` | One column per JSON key returned by the model |
 | `raw` | The exact JSON string from the model (for auditing) |
-| `prompt_version` | Rubric filename stem (e.g. `rubric_v1`) |
+| `prompt_version` | The `output_name` used in `score_many()` |
 | `model` | The model name (e.g. `gpt-4o`) |
 | `temperature` | The temperature setting used |
 | `scored_at` | ISO 8601 timestamp |
 
-```{r}
-results <- read.csv("results/rubric_v1.csv", stringsAsFactors = FALSE)
+Input texts are not stored in the output CSV — only `id` links back to your
+source data. This prevents accidental leakage when sharing results, and keeps
+the schema flat even when your rubric uses multiple input columns.
 
-# Downstream analysis: aggregate scores however your study requires
-results$overall <- rowMeans(results[, c("clarity", "emotional_tone")])
-hist(results$overall)
+```{r}
+results <- read.csv("results/clinical_v1.csv", stringsAsFactors = FALSE)
+
+# Aggregate scores
+results$severity <- rowMeans(results[, c("valence", "hopelessness",
+                                         "somatic_distress")])
+
+# Compare themes from the original dataset
+merged <- merge(results[, c("id", "severity")],
+                df[,      c("id", "theme")],
+                by = "id")
+tapply(merged$severity, merged$theme, mean)
 ```
 
-The provenance columns (`prompt_version`, `model`, `scored_at`) make every row
-self-describing — a CSV can be archived or shared and its origin is always
-recoverable.
+The provenance columns (`prompt_version`, `model`, `scored_at`) make every
+row self-describing — a CSV can be archived or shared and its origin is
+always recoverable.

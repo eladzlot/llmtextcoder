@@ -150,25 +150,26 @@ scripts/03_score_batch.R      Full batch demo with skip logic and status()
 
 ## Output CSV schema
 
-Each row of `<output_dir>/<stem>.csv`:
+Each row of `<output_dir>/<output_name>.csv`:
 
 | Column | Source |
 |--------|--------|
 | `id` | From input `df$id` |
-| *(placeholder columns)* | One per `{{placeholder}}` in the template, from input `df` |
 | *(score columns)* | One per JSON key returned by the model |
 | `raw` | The exact JSON string from the model |
-| `prompt_version` | Stem of template filename (e.g. `rubric_v1`) |
+| `prompt_version` | The `output_name` passed to `score_many()` |
 | `model` | From `run_params()` |
 | `temperature` | From `run_params()` |
 | `scored_at` | ISO 8601 timestamp |
 
-Error CSV `<output_dir>/<stem>_errors.csv`:
+Placeholder columns are intentionally excluded — input texts are not written
+to the output CSV to prevent accidental leakage when sharing results.
+
+Error CSV `<output_dir>/<output_name>_errors.csv`:
 
 | Column | Source |
 |--------|--------|
 | `id` | From input `df$id` |
-| *(placeholder columns)* | One per `{{placeholder}}` in the template |
 | `error` | `conditionMessage()` of the caught error |
 | `model` | From `run_params()` |
 | `scored_at` | ISO 8601 timestamp |

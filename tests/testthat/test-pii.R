@@ -289,10 +289,9 @@ test_that("score_many writes _pii.csv when PII detected", {
   on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
 
   withr::with_tempdir({
-    writeLines("Rate this: {{text}}", "rubric.txt")
     expect_warning(
-      score_many(df, "rubric.txt", run_params(), output_dir = "out",
-                 pii_check = TRUE),
+      score_many(df, "Rate this: {{text}}", "rubric", run_params(),
+                 output_dir = "out", pii_check = TRUE),
       "PII"
     )
     expect_true(file.exists("out/rubric_pii.csv"))
@@ -311,10 +310,9 @@ test_that("score_many skips PII check when pii_check = FALSE", {
   on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
 
   withr::with_tempdir({
-    writeLines("Rate this: {{text}}", "rubric.txt")
     expect_no_warning(
-      score_many(df, "rubric.txt", run_params(), output_dir = "out",
-                 pii_check = FALSE)
+      score_many(df, "Rate this: {{text}}", "rubric", run_params(),
+                 output_dir = "out", pii_check = FALSE)
     )
     expect_false(file.exists("out/rubric_pii.csv"))
   })

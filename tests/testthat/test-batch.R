@@ -262,8 +262,7 @@ test_that("collect_batch writes CSV, restores data, removes state when complete"
     out <- read.csv("rubric.csv", stringsAsFactors = FALSE)
     expect_equal(nrow(out), 2)
     expect_true("score" %in% names(out))
-    expect_equal(out$text[out$id == "P1"], "text one")
-    expect_equal(out$text[out$id == "P2"], "text two")
+    expect_false("text" %in% names(out))
   })
 })
 

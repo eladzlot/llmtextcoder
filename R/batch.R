@@ -145,7 +145,7 @@ submit_batch <- function(df, template_path, params = run_params(),
   }
 
   prompt_version <- tools::file_path_sans_ext(basename(template_path))
-  out_path       <- .output_path(template_path, output_dir)
+  out_path       <- file.path(output_dir, paste0(prompt_version, ".csv"))
 
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
@@ -264,8 +264,9 @@ collect_batch <- function(template_path, params = run_params(),
     return(invisible(NULL))
   }
 
-  out_path <- .output_path(template_path, output_dir)
-  err_path <- .error_path(template_path, output_dir)
+  stem     <- tools::file_path_sans_ext(basename(template_path))
+  out_path <- file.path(output_dir, paste0(stem, ".csv"))
+  err_path <- file.path(output_dir, paste0(stem, "_errors.csv"))
 
   if (info$status != "completed") {
     message(sprintf("Batch ended with status '%s'. No results to collect.",
@@ -315,7 +316,6 @@ collect_batch <- function(template_path, params = run_params(),
     } else {
       .append_csv(
         cbind(data.frame(id = id, stringsAsFactors = FALSE),
-              as.data.frame(data, stringsAsFactors = FALSE),
               data.frame(error     = result$message,
                          model     = state$model,
                          scored_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),

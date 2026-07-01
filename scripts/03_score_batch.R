@@ -19,23 +19,24 @@ df <- data.frame(
   stringsAsFactors = FALSE
 )
 
-params <- run_params(model = "gpt-4o", temperature = 0)
+template <- read_template("prompts/rumination_v1.txt")
+params   <- run_params(model = "gpt-4o", temperature = 0)
 
 # --- Demo 1: score just the first row (n = 1) --------------------------------
 cat("\n--- Pass 1: score first row only (n = 1) ---\n")
-score_many(df, "prompts/rumination_v1.txt", params = params, n = 1)
+score_many(df, template, "rumination_v1", params = params, n = 1)
 
 # --- Demo 2: score remaining rows (skip logic skips the first row) -----------
 cat("\n--- Pass 2: score the rest (first row should be skipped) ---\n")
-score_many(df, "prompts/rumination_v1.txt", params = params)
+score_many(df, template, "rumination_v1", params = params)
 
 # --- Demo 3: re-run everything (all rows should be skipped) ------------------
 cat("\n--- Pass 3: re-run (all rows should be skipped) ---\n")
-score_many(df, "prompts/rumination_v1.txt", params = params)
+score_many(df, template, "rumination_v1", params = params)
 
 # --- Demo 4: check status ----------------------------------------------------
 cat("\n--- Status ---\n")
-status(df, "prompts/rumination_v1.txt", params)
+status(df, "rumination_v1", params)
 
 # --- Inspect the output CSV --------------------------------------------------
 cat("\n--- Output CSV ---\n")

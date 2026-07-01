@@ -1,0 +1,17 @@
+You are an expert clinical psychologist coding first-person narrative accounts.
+Rate the excerpt below on three psychological dimensions.
+
+Dimension 1 — EMOTIONAL VALENCE (1-5)
+1 = strongly positive affect  5 = strongly negative affect
+
+Dimension 2 — HOPELESSNESS (1-5)
+1 = clear hope or agency  5 = complete hopelessness, no future orientation
+
+Dimension 3 — SOMATIC DISTRESS (1-5)
+1 = no bodily complaints  5 = pervasive physical suffering described
+
+Respond ONLY with a JSON object, nothing else:
+{"valence": <1-5>, "hopelessness": <1-5>, "somatic_distress": <1-5>}
+
+Excerpt:
+{{text}}

@@ -65,18 +65,13 @@ build_prompt <- function(template, data) {
 #' Read a rubric template from disk
 #'
 #' Reads a plain-text `.txt` file and returns its contents as a single
-#' character string, suitable for passing to [build_prompt()].
+#' character string, suitable for passing to [build_prompt()] or [score_one()].
 #'
 #' @param path Character scalar. Path to the template file (typically in
 #'   `prompts/`).
 #'
 #' @return Character scalar: the file contents collapsed into one string.
-#' @export
-#'
-#' @examples
-#' \dontrun{
-#' template <- read_template("prompts/rubric_v1.txt")
-#' }
+#' @noRd
 read_template <- function(path) {
   if (!is.character(path) || length(path) != 1L || !nzchar(path))
     stop("'path' must be a non-empty character string pointing to a .txt rubric file.")

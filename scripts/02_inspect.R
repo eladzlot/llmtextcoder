@@ -15,15 +15,16 @@ texts <- list(
 )
 
 template_path <- "prompts/rumination_v1.txt"
+template      <- read_template(template_path)
 params        <- run_params()
 
 # --- Step 1: preview the compiled prompt for one text (no API call) ----------
 cat("\n=== PROMPT PREVIEW (ruminate) ===\n\n")
-preview_prompt(read_template(template_path), list(text = texts$ruminate))
+preview_prompt(template, list(text = texts$ruminate))
 
 # --- Step 2: score all three and print results --------------------------------
 for (name in names(texts)) {
   cat(sprintf("\n=== RESULT: %s ===\n\n", toupper(name)))
-  result <- score_one(template_path, list(text = texts[[name]]), params)
+  result <- score_one(template, list(text = texts[[name]]), params)
   print_result(result$raw, result$scores)
 }

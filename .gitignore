@@ -28,3 +28,7 @@ data/
 
 # pkgdown build output (deployed via gh-pages branch by Actions)
 docs/
+
+# Claude Code local settings and developer notes
+.claude/
+todo.md
