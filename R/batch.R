@@ -109,6 +109,8 @@
 #' @param n Integer. Maximum number of pending rows to include. Default `Inf`.
 #' @param output_dir Character scalar. Directory for output files. Default
 #'   `"data"`.
+#' @param force Logical. Delete any existing state file, output CSV, and error
+#'   CSV before submitting, so all rows are resubmitted. Default `FALSE`.
 #' @param completion_window Character. `"24h"` (default) or `"1h"`.
 #' @param api_key Character. OpenAI API key.
 #' @param base_url Character. OpenAI API base URL.
@@ -129,6 +131,7 @@
 submit_batch <- function(df, template_path, params = run_params(),
                          n                 = Inf,
                          output_dir        = "data",
+                         force             = FALSE,
                          completion_window = "24h",
                          api_key  = Sys.getenv("OPENAI_API_KEY"),
                          base_url = "https://api.openai.com/v1") {
@@ -136,16 +139,21 @@ submit_batch <- function(df, template_path, params = run_params(),
   placeholders <- .template_placeholders(template)
   .check_df(df, required_cols = placeholders)
 
-  state_path <- .batch_state_path(template_path, params, output_dir)
-  if (file.exists(state_path)) {
+  state_path     <- .batch_state_path(template_path, params, output_dir)
+  prompt_version <- tools::file_path_sans_ext(basename(template_path))
+  out_path       <- file.path(output_dir, paste0(prompt_version, ".csv"))
+  err_path       <- file.path(output_dir, paste0(prompt_version, "_errors.csv"))
+
+  if (force) {
+    if (file.exists(state_path)) file.remove(state_path)
+    if (file.exists(out_path))   file.remove(out_path)
+    if (file.exists(err_path))   file.remove(err_path)
+  } else if (file.exists(state_path)) {
     stop(sprintf(paste0(
       "A pending batch already exists:\n  %s\n",
       "Collect it with collect_batch() before submitting a new one."
     ), state_path))
   }
-
-  prompt_version <- tools::file_path_sans_ext(basename(template_path))
-  out_path       <- file.path(output_dir, paste0(prompt_version, ".csv"))
 
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 

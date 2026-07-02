@@ -1,5 +1,23 @@
 
 #' @noRd
+.flatten_scores <- function(scores) {
+  result <- list()
+  for (nm in names(scores)) {
+    val <- scores[[nm]]
+    if (is.null(val)) {
+      result[[nm]] <- NA_character_
+    } else if (is.list(val)) {
+      for (sub_nm in names(val)) {
+        result[[paste0(nm, "_", sub_nm)]] <- if (is.null(val[[sub_nm]])) NA_character_ else val[[sub_nm]]
+      }
+    } else {
+      result[[nm]] <- val
+    }
+  }
+  result
+}
+
+#' @noRd
 .fmt_elapsed <- function(secs) {
   if (secs < 60) sprintf("%ds", round(secs))
   else sprintf("%dm %02ds", floor(secs / 60), round(secs %% 60))
@@ -9,7 +27,7 @@
 .to_row <- function(id, data, raw, scores, prompt_version, params) {
   cbind(
     data.frame(id = id, stringsAsFactors = FALSE),
-    as.data.frame(scores, stringsAsFactors = FALSE),
+    as.data.frame(.flatten_scores(scores), stringsAsFactors = FALSE),
     data.frame(
       raw            = raw,
       prompt_version = prompt_version,
@@ -89,7 +107,7 @@ score_one <- function(template, data, params = run_params(),
 #'
 #' The template determines which columns of `df` are used: every
 #' `{{placeholder}}` in the template must correspond to a column in `df`.
-#' All placeholder columns are included in the output CSV alongside the scores.
+#' Input texts are not written to the output CSV.
 #'
 #' @section PII check:
 #' By default, `score_many()` scans all template placeholder columns for
@@ -122,6 +140,8 @@ score_one <- function(template, data, params = run_params(),
 #'   `Inf`.
 #' @param output_dir Character scalar. Directory for output files. Default
 #'   `"data"`.
+#' @param force Logical. Delete existing output and error CSVs before scoring,
+#'   so all rows are treated as pending. Default `FALSE`.
 #' @param pii_check Logical. Scan placeholder columns for PII before scoring.
 #'   Default `TRUE`.
 #' @param pii_auto_patterns Named character vector passed to [scan_pii()].
@@ -144,6 +164,7 @@ score_one <- function(template, data, params = run_params(),
 #' }
 score_many <- function(df, template, output_name, params = run_params(), n = Inf,
                        output_dir = "data",
+                       force = FALSE,
                        pii_check = TRUE,
                        pii_auto_patterns       = auto_pii_patterns(),
                        pii_disclosure_patterns = disclosure_pii_patterns(),
@@ -153,6 +174,11 @@ score_many <- function(df, template, output_name, params = run_params(), n = Inf
 
   out_path <- file.path(output_dir, paste0(output_name, ".csv"))
   err_path <- file.path(output_dir, paste0(output_name, "_errors.csv"))
+
+  if (force) {
+    if (file.exists(out_path)) file.remove(out_path)
+    if (file.exists(err_path)) file.remove(err_path)
+  }
 
   if (pii_check && length(placeholders) > 0L) {
     pii_path <- file.path(output_dir, paste0(output_name, "_pii.csv"))

@@ -42,6 +42,6 @@ up to three times with exponential backoff before an error is raised.
 \dontrun{
 readRenviron(".env")
 template <- read_template("prompts/rubric_v1.txt")
-raw      <- call_openai(build_prompt(template, "Some text."), run_params())
+raw      <- call_openai(build_prompt(template, list(text = "Some text.")), run_params())
 }
 }

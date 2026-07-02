@@ -1,56 +1,33 @@
-# 05_rumination_james.R
-# Score all James testimonials with the rumination rubric.
-#
-# Run from the project root:
-#     Rscript scripts/05_rumination_james.R
-
 for (f in list.files("R", pattern = "\\.R$", full.names = TRUE)) source(f)
 if (file.exists(".env")) readRenviron(".env")
 
+PROVENANCE <- c("id", "raw", "prompt_version", "model", "temperature", "scored_at", "coder_notes")
+
+score_cols <- function(df) setdiff(names(df), PROVENANCE)
+
+# ── Configuration (change VERSION to test a new rubric) ───────────────────────
+VERSION <- "rumination_v1"
+N_PILOT <- 5     # set to Inf to skip pilot and score everything in one pass
+FORCE   <- TRUE  # set to FALSE to resume an interrupted run
+
 params <- run_params(model = "gpt-4o", temperature = 0)
+rubric <- paste(readLines(sprintf("prompts/%s.txt", VERSION)), collapse = "\n")
+batch  <- varieties_testimonials()[, c("id", "text")]
 
-# ── 1. Load data ──────────────────────────────────────────────────────────────
-df <- varieties_testimonials()
-batch <- df[, c("id", "text")]
+# ── Pilot ─────────────────────────────────────────────────────────────────────
+score_many(batch, rubric, VERSION, params, n = N_PILOT, force = FORCE, pii_check = FALSE, output_dir = "data")
+pilot <- read.csv(sprintf("data/%s.csv", VERSION), stringsAsFactors = FALSE)
+print(pilot[, c("id", score_cols(pilot))])
 
-# ── 2. PII scan ───────────────────────────────────────────────────────────────
-# James testimonials are public domain and contain no participant data,
-# so we skip the scan. For real participant data, replace this block with:
-#
-#   pii <- scan_pii(batch)
-#   pii_code(pii)          # prints redact_words() calls to paste into script
-#   batch <- redact_pii(batch)
-#   batch <- redact_words(batch, id = "P01", pattern = "name_disclosure", n_words = 2)
-#   # ... one call per disclosure finding, then re-run scan_pii() to confirm clean
+# ── Full batch ────────────────────────────────────────────────────────────────
+score_many(batch, rubric, VERSION, params, pii_check = FALSE, output_dir = "data")
+status(batch, VERSION, params, output_dir = "data")
 
-# ── 3. Load rubric ────────────────────────────────────────────────────────────
-rubric <- paste(readLines("prompts/rumination_v1.txt"), collapse = "\n")
-
-# ── 4. Pilot: score 3 rows and inspect ───────────────────────────────────────
-cat("── Pilot (3 rows) ────────────────────────────────────────────────────────\n")
-score_many(batch, rubric, "rumination_v1", params,
-           n = 3, pii_check = FALSE, output_dir = "data")
-
-pilot <- read.csv("data/rumination_v1.csv", stringsAsFactors = FALSE)
-score_cols <- c("repetition", "negativity", "stagnation", "passivity", "abstractness")
-cat("Pilot scores:\n")
-print(pilot[, c("id", score_cols)])
-cat("\nDo the scores look right? If not, revise the rubric and rename it v2.\n\n")
-
-# ── 5. Full batch ─────────────────────────────────────────────────────────────
-cat("── Full batch ────────────────────────────────────────────────────────────\n")
-score_many(batch, rubric, "rumination_v1", params,
-           pii_check = FALSE, output_dir = "data")
-
-status(batch, "rumination_v1", params, output_dir = "data")
-
-# ── 6. Quick summary ──────────────────────────────────────────────────────────
-results <- read.csv("data/rumination_v1.csv", stringsAsFactors = FALSE)
-results <- merge(results, df[, c("id", "theme")], by = "id")
-
-score_cols <- c("repetition", "negativity", "stagnation", "passivity", "abstractness")
-results$rumination <- rowMeans(results[, score_cols])
-
-cat("\nMean rumination by theme:\n")
-theme_means <- sort(tapply(results$rumination, results$theme, mean), decreasing = TRUE)
-print(round(theme_means, 2))
+# ── Summary by theme ──────────────────────────────────────────────────────────
+results  <- read.csv(sprintf("data/%s.csv", VERSION), stringsAsFactors = FALSE)
+df       <- varieties_testimonials()
+results  <- merge(results, df[, c("id", "theme")], by = "id")
+cols     <- score_cols(results)
+num_cols <- cols[sapply(results[, cols, drop = FALSE], is.numeric)]
+results$rumination <- rowMeans(results[, num_cols])
+print(round(sort(tapply(results$rumination, results$theme, mean), decreasing = TRUE), 2))

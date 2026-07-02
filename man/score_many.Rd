@@ -6,10 +6,12 @@
 \usage{
 score_many(
   df,
-  template_path,
+  template,
+  output_name,
   params = run_params(),
   n = Inf,
   output_dir = "data",
+  force = FALSE,
   pii_check = TRUE,
   pii_auto_patterns = auto_pii_patterns(),
   pii_disclosure_patterns = disclosure_pii_patterns(),
@@ -20,7 +22,13 @@ score_many(
 \item{df}{A data frame with column \code{id} and one column per \code{{{placeholder}}}
 in the template.}
 
-\item{template_path}{Character scalar. Path to the \code{.txt} rubric template.}
+\item{template}{Character scalar. The rubric template string with
+\code{{{placeholder}}} markers. Use an inline string or load from a file with
+\code{paste(readLines("prompts/rubric.txt"), collapse = "\\n")}.}
+
+\item{output_name}{Character scalar. Stem used to name output files:
+\verb{<output_dir>/<output_name>.csv}. Pick a name that identifies the rubric
+version, e.g. \code{"clinical_v1"}.}
 
 \item{params}{A \code{run_params} object (from \code{\link[=run_params]{run_params()}}).}
 
@@ -29,6 +37,9 @@ in the template.}
 
 \item{output_dir}{Character scalar. Directory for output files. Default
 \code{"data"}.}
+
+\item{force}{Logical. Delete existing output and error CSVs before scoring,
+so all rows are treated as pending. Default \code{FALSE}.}
 
 \item{pii_check}{Logical. Scan placeholder columns for PII before scoring.
 Default \code{TRUE}.}
@@ -43,31 +54,30 @@ Default \code{TRUE}.}
 The path to the output CSV, invisibly.
 }
 \description{
-Scores each row of \code{df} against the rubric template at \code{template_path},
-appending one row to the output CSV immediately after each API call. If
-the run is interrupted, restart with the same call — already-scored rows
-are skipped automatically.
+Scores each row of \code{df} against the rubric \code{template}, appending one row to
+the output CSV immediately after each API call. If the run is interrupted,
+restart with the same call — already-scored rows are skipped automatically.
 }
 \details{
 The template determines which columns of \code{df} are used: every
 \code{{{placeholder}}} in the template must correspond to a column in \code{df}.
-All placeholder columns are included in the output CSV alongside the scores.
+Input texts are not written to the output CSV.
 }
 \section{PII check}{
 
 By default, \code{score_many()} scans all template placeholder columns for
 potentially identifying information before any API call is made. Flagged
-rows are written to \verb{<output_dir>/<stem>_pii.csv} and a warning is printed,
-but scoring proceeds. Review the PII file (or run \code{\link[=scan_pii]{scan_pii()}} beforehand)
-and re-score a cleaned data frame if needed. Set \code{pii_check = FALSE} once
-you have reviewed.
+rows are written to \verb{<output_dir>/<output_name>_pii.csv} and a warning is
+printed, but scoring proceeds. Review the PII file (or run \code{\link[=scan_pii]{scan_pii()}}
+beforehand) and re-score a cleaned data frame if needed. Set
+\code{pii_check = FALSE} once you have reviewed.
 }
 
 \section{Output files}{
 
-Results go to \verb{<output_dir>/<stem>.csv} and failures to
-\verb{<output_dir>/<stem>_errors.csv}, where \verb{<stem>} is the template filename
-without its extension. Failures are retried automatically on the next run.
+Results go to \verb{<output_dir>/<output_name>.csv} and failures to
+\verb{<output_dir>/<output_name>_errors.csv}. Failures are retried automatically
+on the next run.
 }
 
 \section{Skip logic}{
@@ -81,10 +91,11 @@ with a different model appends new rows alongside the old ones.
 \dontrun{
 library(llmtextcoder)
 readRenviron(".env")
-df     <- read.csv("participants.csv")
+rubric <- paste(readLines("prompts/rubric_v1.txt"), collapse = "\n")
+df     <- varieties_testimonials()
 params <- run_params(model = "gpt-4o", temperature = 0)
 
-score_many(df, "rubric_v1.txt", params, n = 10, output_dir = "results")
-score_many(df, "rubric_v1.txt", params, output_dir = "results")
+score_many(df, rubric, "rubric_v1", params, n = 10, output_dir = "results")
+score_many(df, rubric, "rubric_v1", params, output_dir = "results")
 }
 }

@@ -10,6 +10,7 @@ submit_batch(
   params = run_params(),
   n = Inf,
   output_dir = "data",
+  force = FALSE,
   completion_window = "24h",
   api_key = Sys.getenv("OPENAI_API_KEY"),
   base_url = "https://api.openai.com/v1"
@@ -27,6 +28,9 @@ in the template.}
 
 \item{output_dir}{Character scalar. Directory for output files. Default
 \code{"data"}.}
+
+\item{force}{Logical. Delete any existing state file, output CSV, and error
+CSV before submitting, so all rows are resubmitted. Default \code{FALSE}.}
 
 \item{completion_window}{Character. \code{"24h"} (default) or \code{"1h"}.}
 

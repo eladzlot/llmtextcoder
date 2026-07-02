@@ -4,12 +4,13 @@
 \alias{status}
 \title{Report batch scoring progress for a dataset}
 \usage{
-status(df, template_path, params = run_params(), output_dir = "data")
+status(df, output_name, params = run_params(), output_dir = "data")
 }
 \arguments{
 \item{df}{A data frame with at minimum column \code{id}.}
 
-\item{template_path}{Character scalar. Path to the \code{.txt} rubric template.}
+\item{output_name}{Character scalar. Must match the \code{output_name} used in
+\code{\link[=score_many]{score_many()}}.}
 
 \item{params}{A \code{run_params} object (from \code{\link[=run_params]{run_params()}}).}
 
@@ -26,7 +27,7 @@ still pending for the given rubric and model.
 }
 \examples{
 \dontrun{
-df <- read.csv("participants.csv")
-status(df, "rubric_v1.txt", run_params(), output_dir = "results")
+df <- varieties_testimonials()
+status(df, "clinical_v1", run_params(), output_dir = "results")
 }
 }

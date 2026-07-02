@@ -119,6 +119,25 @@ test_that("score_many() output has required provenance columns", {
   })
 })
 
+test_that("score_many() flattens nested scores and handles null coder_notes", {
+  withr::with_tempdir({
+    dir.create("data")
+    old_fn <- call_openai
+    assign("call_openai", function(...)
+      '{"valence": {"score": 3, "rationale": "mixed"}, "coder_notes": null}',
+      envir = globalenv())
+    on.exit(assign("call_openai", old_fn, envir = globalenv()), add = TRUE)
+
+    score_many(sample_df[1, ], TEMPLATE, "test_v1", run_params())
+    out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
+    expect_true("valence_score"     %in% names(out))
+    expect_true("valence_rationale" %in% names(out))
+    expect_equal(out$valence_score, 3)
+    expect_equal(out$valence_rationale, "mixed")
+    expect_true(is.na(out$coder_notes))
+  })
+})
+
 test_that("score_many() does not write placeholder columns to output", {
   withr::with_tempdir({
     dir.create("data")

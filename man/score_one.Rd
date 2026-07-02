@@ -5,14 +5,16 @@
 \title{Score a single row of data against a rubric template}
 \usage{
 score_one(
-  template_path,
+  template,
   data,
   params = run_params(),
   api_key = Sys.getenv("OPENAI_API_KEY")
 )
 }
 \arguments{
-\item{template_path}{Character scalar. Path to the \code{.txt} rubric template.}
+\item{template}{Character scalar. The rubric template string with
+\code{{{placeholder}}} markers. Load from a file with
+\code{paste(readLines("prompts/rubric.txt"), collapse = "\\n")}.}
 
 \item{data}{Named list. Values for each \code{{{placeholder}}} in the template.}
 
@@ -28,15 +30,15 @@ A list with two elements:
 }
 }
 \description{
-A convenience wrapper for interactive and testing use. Reads the template,
-builds the prompt, calls the API, and parses the response in one step.
-Pass the result to \code{\link[=print_result]{print_result()}} to display it, or inspect \verb{$raw} and
-\verb{$scores} directly.
+A convenience wrapper for interactive and testing use. Builds the prompt,
+calls the API, and parses the response in one step. Pass the result to
+\code{\link[=print_result]{print_result()}} to display it, or inspect \verb{$raw} and \verb{$scores} directly.
 }
 \examples{
 \dontrun{
 readRenviron(".env")
-result <- score_one("rubric_v1.txt",
+rubric <- paste(readLines("prompts/rubric_v1.txt"), collapse = "\n")
+result <- score_one(rubric,
                     list(text = "I keep worrying about the same thing."),
                     run_params())
 print_result(result$raw, result$scores)

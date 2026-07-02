@@ -1,35 +1,146 @@
-You are an expert cognitive-behavioral therapist and research coder. Your task is to evaluate the degree of *rumination* in the following text using a structured rubric. Rumination refers to repetitive, looping, problem-focused thinking that revisits the same concerns without moving toward decisions, actions, or new understanding.
+You are an expert evaluator of written text.
 
-Rate each of the following three dimensions **on a 1-5 scale** using the anchors below. Higher scores always indicate *more ruminative qualities*.
+Your task is to assess **rumination** in the following passage.
 
-Dimension 1 — **Repetition / Looping** (1-5)
-1 = no noticeable repetition
-2 = mild revisiting of ideas
-3 = some looping mixed with forward movement
-4 = strong repetition or circling
-5 = highly repetitive, stuck, looping throughout
+**Definition**
 
-Dimension 2 — **Progress vs. Stagnation** (1-5; higher = more stagnation)
-1 = clear progress, insight, or action steps
-2 = partial movement toward resolution
-3 = mixed: some progress, some stagnation
-4 = little movement toward resolution
-5 = no movement; entirely stuck
+Rumination is **repetitive negative thinking that remains cognitively stuck, repeatedly revisiting distress without meaningful progression in understanding, emotional processing, or action.**
 
-Dimension 3 — **Narrowness of Focus / Cognitive Constriction** (1-5)
-1 = broad, flexible perspective
-2 = mostly flexible with some narrowing
-3 = moderate narrowing of focus
-4 = strong narrowing; few perspectives considered
-5 = extremely narrow, tunnel-like focus
+Assess only what is observable in the text. Do **not** infer diagnoses, personality, mental illness, or facts not explicitly supported by the writing.
 
-Instructions:
-1. Read the text.
-2. Assign scores for each of the three dimensions.
-3. Respond **only** with a single JSON object in this exact structure and nothing else:
-{"repetition_looping": <1-5>, "progress_stagnation": <1-5>, "narrow_focus": <1-5>}
+---
 
-Do not include explanations, comments, or extra text.
+## Rating Dimensions
 
-Text to evaluate:
+Rate each dimension from **1 (low)** to **5 (high)**. Higher scores always indicate more ruminative qualities.
+
+---
+
+### 1. repetition
+
+Does the text repeatedly return to the same thought, emotion, image, fear, or interpretation without adding meaningful new information?
+
+**Score 1** — Little or no repetition. The narrative develops naturally; each sentence adds something new.
+
+> "I was anxious when I arrived. Then I described what happened, how I reacted, and what I learned."
+
+**Score 3** — The text returns to similar themes more than once, but new details or perspectives appear between revisits.
+
+> "I kept thinking about the argument. Later I wondered if I'd misread the situation. The memory came back again when I was trying to sleep."
+
+**Score 5** — The text repeatedly circles the same concern. Similar thoughts are restated with minimal development.
+
+> "It was my fault. I keep thinking it was my fault. Everything comes back to being my fault."
+
+---
+
+### 2. negative fixation
+
+How persistently is attention locked onto negative material — threat, loss, guilt, shame, failure, helplessness, or catastrophe?
+
+Do **not** score high simply because the text describes a traumatic or upsetting event. Score the **degree of persistent negative focus**, not the severity of the event.
+
+**Score 1** — Negative material is minimal or balanced with neutral, concrete, or adaptive content.
+
+> "I felt scared, but I focused on describing exactly what happened."
+
+**Score 3** — Negative material is substantial and recurrent, but moments of neutral description, forward focus, or adaptive reflection are also present.
+
+> "I kept returning to how unfair it felt. Parts of the account were hard to write. But I also tried to remember what I'd done well."
+
+**Score 5** — Nearly the entire passage is dominated by negative interpretation or catastrophic thinking. Neutral or adaptive content is absent or fleeting.
+
+> "Everything is ruined. I'll never recover. Nothing will ever improve."
+
+---
+
+### 3. stagnation
+
+Does the writing move toward understanding, emotional processing, acceptance, or action — or does it remain stuck?
+
+High scores indicate **lack of progress**. This dimension focuses on narrative arc across the passage, not on whether a resolution is reached.
+
+**Score 1** — Clear movement. The writer reaches a new understanding, reframes the event, or identifies next steps.
+
+> "At first I blamed myself, but while writing I realized I was mostly frightened."
+
+**Score 3** — Limited movement. There are small shifts in framing or emotional tone, but no clear arc toward insight or resolution.
+
+> "I'm not sure what to make of it. Maybe I overreacted. But it still bothers me in a way I can't quite name."
+
+**Score 5** — No meaningful movement. The text revisits the same problem without advancing. The end is as stuck as the beginning.
+
+> "Why did this happen? I don't know. I keep wondering why. I'll never understand."
+
+---
+
+### 4. passivity
+
+Does the writer describe themselves as passive, trapped, overwhelmed, or unable to disengage from intrusive thoughts?
+
+High scores reflect **loss of agency over one's own mental processes** — being driven by thoughts rather than directing them. This is distinct from negative emotional content: a writer can describe great distress while remaining an active agent, and can feel passive without describing intense emotion.
+
+**Score 1** — Active stance. The writer observes, reflects, chooses, or deliberately directs attention.
+
+> "I noticed the thought returning and redirected my attention to describing the memory."
+
+**Score 3** — Mixed. The writer sometimes feels overwhelmed or caught, but also shows deliberate reflection or moments of redirection.
+
+> "The thoughts kept pulling me back. I tried to focus on what had actually happened, though I didn't always succeed."
+
+**Score 5** — Strong sense of being controlled by thoughts or emotions. The writer cannot disengage; thoughts feel autonomous and uncontrollable.
+
+> "The thoughts wouldn't stop. I couldn't escape them. They completely controlled me."
+
+---
+
+### 5. abstractness
+
+Does the writing rely on abstract judgments, generalized conclusions, or evaluative thinking rather than concrete, specific, sensory description?
+
+**Important:** Abstract thinking **alone is not rumination** — score only the mode of processing, not its emotional tone. A text can be highly abstract without being negative (e.g., philosophical reflection), and highly negative without being abstract (e.g., a vivid, concrete trauma account). The key question is whether the writer is *generalizing and evaluating* versus *observing and describing*.
+
+**Score 1** — Mostly concrete and specific. The text is grounded in sensory detail, actions, or particular events.
+
+> "I heard the door slam. My hands were shaking. I walked into the room."
+
+**Score 3** — A mix of concrete and abstract. Specific details appear alongside evaluative conclusions or generalizations.
+
+> "It happened so fast — I remember the sound and the smell of the room. Looking back, I think I just shut down when things got overwhelming."
+
+**Score 5** — Mostly abstract, evaluative, and generalized. Self-referential conclusions or global judgments dominate; concrete detail is sparse.
+
+> "I never handle pressure well. I always freeze when it matters. That's just the kind of person I am."
+
+---
+
+## Important Guidelines
+
+* Do **not** equate emotional intensity with rumination.
+* Do **not** equate trauma exposure with rumination.
+* Concrete emotional engagement often reflects healthy processing, not rumination.
+* High rumination requires evidence of repetitive negative stuckness.
+* Use the entire passage when assigning scores.
+* Each rationale should be concise (10–30 words) and refer only to observable features of the text.
+
+---
+
+## Coder feedback
+
+If you encountered a genuine difficulty coding this passage — the rubric did not fit, two dimensions were impossible to separate, the text was too short or ambiguous to score reliably — describe it briefly in `coder_notes`. Otherwise leave it null.
+
+Do not use `coder_notes` to flag interesting or emotionally intense texts. Use it only when the rubric itself created a problem.
+
+---
+
+## Output
+
+Return **only** a single, well-formed JSON object with no markdown, no code fences, and no text before or after it.
+
+Schema:
+
+{"repetition": {"score": 1, "rationale": ""}, "negative_fixation": {"score": 1, "rationale": ""}, "stagnation": {"score": 1, "rationale": ""}, "passivity": {"score": 1, "rationale": ""}, "abstractness": {"score": 1, "rationale": ""}, "coder_notes": null}
+
+Now evaluate the following passage:
+
 {{text}}
