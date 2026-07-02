@@ -118,7 +118,7 @@ test_that("submit_batch messages when nothing is pending", {
     df <- make_df()
     out <- data.frame(id = c("P1", "P2"), text = c("a", "b"), score = 1,
                       raw = "{}", prompt_version = "rubric",
-                      model = p$model, temperature = p$temperature,
+                      model = p$model, params = "{}",
                       scored_at = "2026-01-01", stringsAsFactors = FALSE)
     write.csv(out, "rubric.csv", row.names = FALSE)
     expect_message(

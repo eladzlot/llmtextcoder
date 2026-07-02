@@ -13,7 +13,9 @@ calls OpenAI, and returns structured scores as a flat CSV.
 ### Setup
 ```r
 run_params(model = "gpt-4o", temperature = 0)
+run_params(model = "o4-mini")   # reasoning models: omit temperature
 # Returns a run_params list. Pass to every API-calling function.
+# Any extra arguments (temperature, seed, etc.) are forwarded to the API.
 ```
 
 ### Prompt
@@ -140,7 +142,7 @@ merged <- merge(scores, df[, c("id", "theme")], by = "id")
 | `raw` | Exact JSON string from the model |
 | `prompt_version` | The `output_name` argument |
 | `model` | e.g. `gpt-4o` |
-| `temperature` | From `run_params()` |
+| `params` | JSON string of all extra API settings (e.g. `{"temperature":0}`) |
 | `scored_at` | ISO 8601 timestamp |
 
 Input texts are **not** written to the CSV (privacy). Merge on `id` to

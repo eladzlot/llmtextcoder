@@ -41,15 +41,19 @@ call_openai <- function(prompt,
       "       readRenviron(\".env\")"
     ))
 
+  body <- c(
+    list(
+      model           = params$model,
+      response_format = list(type = "json_object"),
+      messages        = list(list(role = "user", content = prompt))
+    ),
+    params$extras
+  )
+
   resp <- httr2::request(base_url) |>
     httr2::req_url_path_append("chat/completions") |>
     httr2::req_auth_bearer_token(api_key) |>
-    httr2::req_body_json(list(
-      model           = params$model,
-      temperature     = params$temperature,
-      response_format = list(type = "json_object"),
-      messages        = list(list(role = "user", content = prompt))
-    )) |>
+    httr2::req_body_json(body) |>
     httr2::req_retry(
       max_tries    = 4,
       is_transient = \(r) httr2::resp_status(r) %in% c(429, 500, 502, 503)

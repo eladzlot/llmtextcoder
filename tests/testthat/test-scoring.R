@@ -113,7 +113,7 @@ test_that("score_many() output has required provenance columns", {
     out <- read.csv("data/test_v1.csv", stringsAsFactors = FALSE)
 
     expect_true(all(c("id", "prompt_version", "model",
-                      "temperature", "scored_at", "raw") %in% names(out)))
+                      "params", "scored_at", "raw") %in% names(out)))
     expect_equal(out$prompt_version, "test_v1")
     expect_equal(out$model, "gpt-4o")
   })

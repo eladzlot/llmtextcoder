@@ -1,7 +1,7 @@
 for (f in list.files("R", pattern = "\\.R$", full.names = TRUE)) source(f)
 if (file.exists(".env")) readRenviron(".env")
 
-PROVENANCE <- c("id", "raw", "prompt_version", "model", "temperature", "scored_at", "coder_notes")
+PROVENANCE <- c("id", "raw", "prompt_version", "model", "params", "scored_at", "coder_notes")
 
 score_cols <- function(df) setdiff(names(df), PROVENANCE)
 
@@ -10,7 +10,7 @@ VERSION <- "rumination_v1"
 N_PILOT <- 5     # set to Inf to skip pilot and score everything in one pass
 FORCE   <- TRUE  # set to FALSE to resume an interrupted run
 
-params <- run_params(model = "gpt-4o", temperature = 0)
+params <- run_params(model = "gpt-5.5")
 rubric <- paste(readLines(sprintf("prompts/%s.txt", VERSION)), collapse = "\n")
 batch  <- varieties_testimonials()[, c("id", "text")]
 

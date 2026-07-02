@@ -4,27 +4,28 @@
 \alias{run_params}
 \title{Create a set of model run parameters}
 \usage{
-run_params(model = "gpt-4o", temperature = 0)
+run_params(model = "gpt-4o", ...)
 }
 \arguments{
 \item{model}{Character scalar. OpenAI model name. Default \code{"gpt-4o"}.}
 
-\item{temperature}{Numeric scalar in \verb{[0, 2]}. Default \code{0} for maximally
-deterministic output. Higher values increase variability; rarely needed
-for rubric-based coding tasks.}
+\item{...}{Any additional parameters accepted by the model, e.g.
+\code{temperature = 0}, \code{seed = 42}, \code{top_p = 1}. Omit parameters the model
+does not support (e.g. reasoning models reject \code{temperature}).}
 }
 \value{
 An object of class \code{run_params} (a named list with fields \code{model}
-and \code{temperature}).
+and \code{extras}).
 }
 \description{
-Constructs a validated \code{run_params} object that bundles the model name and
-temperature. Pass this object to \code{\link[=call_openai]{call_openai()}}, \code{\link[=score_one]{score_one()}}, and
-\code{\link[=score_many]{score_many()}} so that every API call carries explicit, reproducible
-settings — and so those settings are written into every row of the output
-CSV.
+Bundles the model name and any additional API parameters into a \code{run_params}
+object. Pass this to \code{\link[=call_openai]{call_openai()}}, \code{\link[=score_one]{score_one()}}, and \code{\link[=score_many]{score_many()}}.
+Every API call will forward the extras directly to OpenAI, and they are
+recorded in the output CSV as a JSON string for reproducibility.
 }
 \examples{
 run_params()
-run_params(model = "gpt-4o-mini", temperature = 0.2)
+run_params(model = "gpt-4o", temperature = 0.2)
+run_params(model = "o4-mini")
+run_params(model = "gpt-4o", temperature = 0, seed = 42)
 }

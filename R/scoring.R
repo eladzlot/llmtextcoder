@@ -32,7 +32,7 @@
       raw            = raw,
       prompt_version = prompt_version,
       model          = params$model,
-      temperature    = params$temperature,
+      params         = as.character(jsonlite::toJSON(params$extras, auto_unbox = TRUE)),
       scored_at      = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"),
       stringsAsFactors = FALSE
     )

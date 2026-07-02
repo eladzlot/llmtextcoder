@@ -46,7 +46,7 @@ DESCRIPTION     Package metadata
 ### `R/params.R`
 | Function | Signature | Role |
 |----------|-----------|------|
-| `run_params()` | `(model = "gpt-4o", temperature = 0)` | Validated constructor for model settings. Returns a `run_params` list. Pass to every API-calling function. |
+| `run_params()` | `(model = "gpt-4o", ...)` | Constructor for model settings. `...` accepts any API parameters (e.g. `temperature = 0`, `seed = 42`); omit parameters the model does not support. Returns a `run_params` list. |
 
 ### `R/prompt.R`
 | Function | Signature | Role |
@@ -165,7 +165,7 @@ Each row of `<output_dir>/<output_name>.csv`:
 | `raw` | The exact JSON string from the model |
 | `prompt_version` | The `output_name` passed to `score_many()` |
 | `model` | From `run_params()` |
-| `temperature` | From `run_params()` |
+| `params` | JSON string of all extra API parameters (e.g. `{"temperature":0}`) |
 | `scored_at` | ISO 8601 timestamp |
 
 Placeholder columns are intentionally excluded — input texts are not written

@@ -77,7 +77,7 @@ Each placeholder must match a column in your data frame.
 - **Crash-safe.** Results are appended row-by-row. Restart a run and
   already-scored rows are skipped automatically.
 - **Provenance on every row.** Each CSV row records `prompt_version`,
-  `model`, `temperature`, and `scored_at`.
+  `model`, `params` (JSON string of all API settings), and `scored_at`.
 
 ## Using with an AI assistant
 

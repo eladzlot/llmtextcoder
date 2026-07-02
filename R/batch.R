@@ -9,12 +9,14 @@
 .build_batch_jsonl <- function(df, template, params, placeholders) {
   lines <- vapply(seq_len(nrow(df)), function(i) {
     data <- as.list(df[i, placeholders, drop = FALSE])
-    body <- list(
-      model           = params$model,
-      temperature     = params$temperature,
-      response_format = list(type = "json_object"),
-      messages        = list(list(role    = "user",
-                                  content = build_prompt(template, data)))
+    body <- c(
+      list(
+        model           = params$model,
+        response_format = list(type = "json_object"),
+        messages        = list(list(role    = "user",
+                                    content = build_prompt(template, data)))
+      ),
+      params$extras
     )
     jsonlite::toJSON(list(
       custom_id = as.character(df$id[i]),
@@ -196,7 +198,7 @@ submit_batch <- function(df, template_path, params = run_params(),
     placeholders      = placeholders,
     prompt_version    = prompt_version,
     model             = params$model,
-    temperature       = params$temperature,
+    extras            = params$extras,
     completion_window = completion_window,
     submitted_at      = format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
   )
@@ -289,7 +291,7 @@ collect_batch <- function(template_path, params = run_params(),
   lines     <- lines[nzchar(lines)]
 
   fake_params <- structure(
-    list(model = state$model, temperature = state$temperature),
+    list(model = state$model, extras = as.list(state$extras)),
     class = "run_params"
   )
 

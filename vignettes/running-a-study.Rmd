@@ -417,7 +417,7 @@ Each row of `results/clinical_v1.csv` contains:
 | `raw` | The exact JSON string from the model (for auditing) |
 | `prompt_version` | The `output_name` used in `score_many()` |
 | `model` | The model name (e.g. `gpt-4o`) |
-| `temperature` | The temperature setting used |
+| `params` | JSON string of all API settings (e.g. `{"temperature":0}`) |
 | `scored_at` | ISO 8601 timestamp |
 
 Input texts are not stored in the output CSV — only `id` links back to your
